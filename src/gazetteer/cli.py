@@ -21,7 +21,7 @@ from gazetteer.walk import WalkEntry
 
 
 @click.group()
-@click.version_option()
+@click.version_option(package_name="gaz")
 def main() -> None:
     """gaz — bounded structural queries for huge directory trees."""
 
