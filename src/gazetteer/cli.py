@@ -54,7 +54,10 @@ def ext(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dept
         rows.append((extension, len(sizes), total, median))
     rows.sort(key=lambda r: r[2], reverse=True)
 
-    truncated_rows = rows[:max_rows]
+    truncated_rows = [
+        (extension, count, report.human_size(total), report.human_size(median))
+        for extension, count, total, median in rows[:max_rows]
+    ]
     click.echo(report.render_table(truncated_rows, ("ext", "count", "total_size", "median_size")))
     click.echo()
     click.echo(report.status_line(result, max_seconds=max_seconds))
@@ -80,7 +83,10 @@ def tree(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dep
     rows = [(dir_path, len(sizes), sum(sizes)) for dir_path, sizes in stats.items()]
     rows.sort(key=lambda r: r[2], reverse=True)
 
-    truncated_rows = rows[:max_rows]
+    truncated_rows = [
+        (dir_path, n_files, report.human_size(total))
+        for dir_path, n_files, total in rows[:max_rows]
+    ]
     click.echo(report.render_table(truncated_rows, ("dir", "n_files", "total_size")))
     click.echo()
     click.echo(report.status_line(result, max_seconds=max_seconds))
@@ -104,7 +110,7 @@ def find(pattern: str, path: str, max_seconds: float, max_entries: int, max_rows
     matches = [e for e in result.entries if fnmatch.fnmatch(e.name, pattern)]
     truncated = matches[:max_rows]
 
-    rows = [(m.path, "dir" if m.is_dir else "file", m.size) for m in truncated]
+    rows = [(m.path, "dir" if m.is_dir else "file", report.human_size(m.size)) for m in truncated]
     click.echo(report.render_table(rows, ("path", "type", "size")))
     click.echo()
     click.echo(report.status_line(result, max_seconds=max_seconds))

@@ -9,6 +9,16 @@ from __future__ import annotations
 from gazetteer.walk import WalkResult
 
 
+def human_size(n_bytes: int) -> str:
+    """Render a byte count as e.g. '16.5 MB', matching -h conventions."""
+    size = float(n_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+        if size < 1024 or unit == "PB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} PB"
+
+
 def render_table(rows: list[tuple], headers: tuple[str, ...]) -> str:
     """Render rows as plain aligned text (no rich markup)."""
     widths = [len(h) for h in headers]
