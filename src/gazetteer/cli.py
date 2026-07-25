@@ -89,6 +89,10 @@ def tree(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dep
     ]
     click.echo(report.render_table(truncated_rows, ("dir", "n_files", "total_size")))
     click.echo()
+    click.echo(
+        f"Total: {result.n_dirs:,} dirs, {result.n_files:,} files, "
+        f"{report.human_size(result.n_bytes)}"
+    )
     click.echo(report.status_line(result, max_seconds=max_seconds))
 
 
