@@ -17,6 +17,22 @@ _LIMIT_OPTIONS = [
     click.option("--max-depth", default=None, type=int, help="Depth to scope the walk to."),
 ]
 
+_SIZE_HELP = (
+    "Only include files matching this size. Prefix with >, >=, <, <=, "
+    "or nothing for exact (e.g. --size '>1M', --size '<=2k'). "
+    "Repeatable; combine two for a range, e.g. --size '>1M' --size '<10M'."
+)
+
+
+def _validate_size_filters(ctx, param, value):
+    for size_filter in value:
+        try:
+            report.parse_size_filter(size_filter)
+        except ValueError as e:
+            raise click.BadParameter(str(e), ctx=ctx, param=param)
+    return value
+
+
 _FILTER_OPTIONS = [
     click.option(
         "--ext",
@@ -29,6 +45,13 @@ _FILTER_OPTIONS = [
         "patterns",
         multiple=True,
         help="Only include files/dirs whose name matches this glob (e.g. --pattern '*.jpg'). Repeatable.",
+    ),
+    click.option(
+        "--size",
+        "size_filters",
+        multiple=True,
+        callback=_validate_size_filters,
+        help=_SIZE_HELP,
     ),
 ]
 
@@ -45,8 +68,22 @@ def filter_options(f):
     return f
 
 
-def matches_filters(entry: WalkEntry, extensions: tuple[str, ...], patterns: tuple[str, ...]) -> bool:
-    """True if entry passes the --ext / --pattern filters (both optional, AND'd together)."""
+_SIZE_OPS = {
+    ">": lambda size, bound: size > bound,
+    ">=": lambda size, bound: size >= bound,
+    "<": lambda size, bound: size < bound,
+    "<=": lambda size, bound: size <= bound,
+    "=": lambda size, bound: size == bound,
+}
+
+
+def matches_filters(
+    entry: WalkEntry,
+    extensions: tuple[str, ...],
+    patterns: tuple[str, ...],
+    size_filters: tuple[str, ...] = (),
+) -> bool:
+    """True if entry passes the --ext / --pattern / --size filters (AND'd together)."""
     if extensions:
         _, dot_ext = os.path.splitext(entry.name)
         normalized = {e if e.startswith(".") else f".{e}" for e in extensions}
@@ -54,6 +91,10 @@ def matches_filters(entry: WalkEntry, extensions: tuple[str, ...], patterns: tup
             return False
     if patterns:
         if not any(fnmatch.fnmatch(entry.name, p) for p in patterns):
+            return False
+    for size_filter in size_filters:
+        op, bound = report.parse_size_filter(size_filter)
+        if not _SIZE_OPS[op](entry.size, bound):
             return False
     return True
 
@@ -76,6 +117,7 @@ def ext(
     max_depth: int | None,
     extensions: tuple[str, ...],
     patterns: tuple[str, ...],
+    size_filters: tuple[str, ...],
 ) -> None:
     """File-extension breakdown: count, total size, median size."""
     result = walk.walk(
@@ -89,7 +131,7 @@ def ext(
     for entry in result.entries:
         if entry.is_dir:
             continue
-        if not matches_filters(entry, extensions, patterns):
+        if not matches_filters(entry, extensions, patterns, size_filters):
             continue
         _, dot_ext = os.path.splitext(entry.name)
         sizes_by_ext[dot_ext.lower() or "(none)"].append(entry.size)
@@ -122,6 +164,7 @@ def tree(
     max_depth: int | None,
     extensions: tuple[str, ...],
     patterns: tuple[str, ...],
+    size_filters: tuple[str, ...],
 ) -> None:
     """Depth-limited structure with per-directory file counts and sizes."""
     result = walk.walk(
@@ -135,7 +178,7 @@ def tree(
     for entry in result.entries:
         if entry.is_dir:
             continue
-        if not matches_filters(entry, extensions, patterns):
+        if not matches_filters(entry, extensions, patterns, size_filters):
             continue
         stats[entry.parent].append(entry.size)
 
@@ -151,7 +194,7 @@ def tree(
 
     matched_files = sum(len(sizes) for sizes in stats.values())
     matched_bytes = sum(sum(sizes) for sizes in stats.values())
-    if extensions or patterns:
+    if extensions or patterns or size_filters:
         click.echo(
             f"Total (matching filter): {result.n_dirs:,} dirs walked, "
             f"{matched_files:,} files, {report.human_size(matched_bytes)}"
@@ -174,6 +217,13 @@ def tree(
     multiple=True,
     help="Only include files with this extension (e.g. --ext .jpg). Repeatable.",
 )
+@click.option(
+    "--size",
+    "size_filters",
+    multiple=True,
+    callback=_validate_size_filters,
+    help=_SIZE_HELP,
+)
 def find(
     pattern: str,
     path: str,
@@ -182,6 +232,7 @@ def find(
     max_rows: int,
     max_depth: int | None,
     extensions: tuple[str, ...],
+    size_filters: tuple[str, ...],
 ) -> None:
     """Bounded search, filtering during the walk rather than after it."""
     result = walk.walk(
@@ -193,7 +244,7 @@ def find(
 
     matches = [
         e for e in result.entries
-        if fnmatch.fnmatch(e.name, pattern) and matches_filters(e, extensions, ())
+        if fnmatch.fnmatch(e.name, pattern) and matches_filters(e, extensions, (), size_filters)
     ]
     truncated = matches[:max_rows]
 

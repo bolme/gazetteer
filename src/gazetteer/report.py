@@ -6,7 +6,21 @@ natural-language status describing whether the result is complete.
 
 from __future__ import annotations
 
+import re
+
 from gazetteer.walk import WalkResult
+
+_SIZE_UNITS = {
+    "B": 1,
+    "K": 1024,
+    "KB": 1024,
+    "M": 1024**2,
+    "MB": 1024**2,
+    "G": 1024**3,
+    "GB": 1024**3,
+    "T": 1024**4,
+    "TB": 1024**4,
+}
 
 
 def human_size(n_bytes: int) -> str:
@@ -17,6 +31,30 @@ def human_size(n_bytes: int) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} PB"
+
+
+def parse_size(text: str) -> int:
+    """Parse a size like '1.5M', '2k', '500', '10GB' into a byte count."""
+    match = re.fullmatch(r"\s*([0-9]*\.?[0-9]+)\s*([A-Za-z]*)\s*", text)
+    if not match:
+        raise ValueError(f"invalid size: {text!r}")
+    number, unit = match.groups()
+    unit = unit.upper() or "B"
+    if unit not in _SIZE_UNITS:
+        raise ValueError(f"unknown size unit {unit!r} in {text!r}")
+    return int(float(number) * _SIZE_UNITS[unit])
+
+
+def parse_size_filter(text: str) -> tuple[str, int]:
+    """Parse a size filter expression like '>1M', '<=2k', '500' (bare = exact).
+
+    Returns (op, bytes) where op is one of '>', '>=', '<', '<=', '='.
+    """
+    match = re.fullmatch(r"\s*(>=|<=|>|<|=)?\s*(.+)", text)
+    if not match:
+        raise ValueError(f"invalid size filter: {text!r}")
+    op, size_text = match.groups()
+    return (op or "="), parse_size(size_text)
 
 
 def render_table(rows: list[tuple], headers: tuple[str, ...]) -> str:

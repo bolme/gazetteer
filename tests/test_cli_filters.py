@@ -49,3 +49,42 @@ def test_find_narrows_with_ext(tmp_path):
     assert result.exit_code == 0
     assert "a.py" in result.output
     assert "c.txt" not in result.output
+
+
+def _make_size_tree(tmp_path):
+    (tmp_path / "small.bin").write_bytes(b"x" * 100)
+    (tmp_path / "medium.bin").write_bytes(b"x" * 5_000)
+    (tmp_path / "large.bin").write_bytes(b"x" * 2_000_000)
+
+
+def test_find_filters_by_min_size(tmp_path):
+    _make_size_tree(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["find", "*", str(tmp_path), "--size", ">1k"])
+
+    assert result.exit_code == 0
+    assert "small.bin" not in result.output
+    assert "medium.bin" in result.output
+    assert "large.bin" in result.output
+
+
+def test_find_filters_by_size_range(tmp_path):
+    _make_size_tree(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["find", "*", str(tmp_path), "--size", ">1k", "--size", "<1M"]
+    )
+
+    assert result.exit_code == 0
+    assert "small.bin" not in result.output
+    assert "medium.bin" in result.output
+    assert "large.bin" not in result.output
+
+
+def test_find_rejects_invalid_size(tmp_path):
+    _make_size_tree(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["find", "*", str(tmp_path), "--size", "bogus"])
+
+    assert result.exit_code != 0
+    assert "invalid size" in result.output
