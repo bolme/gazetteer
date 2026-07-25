@@ -1,9 +1,22 @@
 # gazetteer (`gaz`)
 
-Bounded structural queries for huge directory trees — see [DESIGN.md](DESIGN.md).
+**Bounded structural queries for huge directory trees.**
 
-A gazetteer is a geographic index — compiled once from survey work, then consulted instead of re-surveying. That's the idea here: gaz scan walks your tree once, and everything after reads the index rather than the filesystem. The name holds up as the tool grows, whether it's indexing directories, dataset splits and annotations, or answering an agent over MCP.
-Installed as gazetteer, typed as gaz.
+`find`, `du`, and `grep` were not built for multi-terabyte datasets. On a
+tree with millions of files, they hang for minutes with no output, or they
+return and flood your terminal (and an LLM's context window) with hundreds
+of thousands of lines. Ctrl-C gives you nothing back either way.
+
+`gaz` answers structural questions — extension breakdowns, size by
+directory, duplicates, stale files, empty directories — under explicit
+time, count, and output budgets, and always tells you clearly when it
+stopped early instead of silently giving you a partial answer disguised as
+a complete one.
+
+> Every operation is bounded, and every truncated result says so.
+
+A partial answer delivered in 30 seconds is more useful than a complete
+answer that never arrives. That's the whole product.
 
 ## Install
 
@@ -11,22 +24,149 @@ Installed as gazetteer, typed as gaz.
 uv pip install -e ".[dev]"
 ```
 
-If that leaves `gaz` raising `ModuleNotFoundError: No module named 'gazetteer'`,
-your environment is likely mangling `.pth`-based editable installs. Use the
-workaround script instead, which symlinks the package into `site-packages`
-directly:
+If that leaves `gaz` raising `ModuleNotFoundError: No module named
+'gazetteer'`, your environment is likely mangling `.pth`-based editable
+installs. Use the workaround script instead, which symlinks the package
+into `site-packages` directly:
 
 ```
 ./scripts/reinstall-dev.sh
 ```
 
-## Usage
+## Commands
+
+Every command takes an optional `PATH` (defaults to `.`), the shared budget
+flags (`--max-seconds`, `--max-entries`, `--max-rows`, `--max-depth`), and
+most accept `--ext`, `--pattern`, and `--size` to scope what's counted.
+
+### `gaz ext` — file-extension breakdown
+
+The highest-value command for understanding a CV dataset at a glance:
+count, total size, and median size per extension.
 
 ```
-gaz ext [PATH]
-gaz tree [PATH]
-gaz find PATTERN [PATH]
+$ gaz ext /data/dataset
+ext   count    total_size  median_size
+----  -------  ----------  -----------
+.jpg  482,123  118.4 GB    241.2 KB
+.xml  482,123  3.1 GB      6.6 KB
+.txt  12       4.0 KB      340 B
+
+Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ```
 
-Every command runs under explicit time/count/row budgets and says clearly
-when it stopped early. See DESIGN.md for the full contract.
+### `gaz tree` — per-directory file counts and sizes
+
+Depth-limited structure with a running total, sorted by size.
+
+```
+$ gaz tree /data/dataset --max-depth 2
+dir                     n_files  total_size
+----------------------  -------  ----------
+/data/dataset/train     820,451  98.1 GB
+/data/dataset/val       102,340  14.2 GB
+/data/dataset/test      60,221   6.1 GB
+
+Total: 3 dirs, 983,012 files, 118.4 GB
+Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
+```
+
+### `gaz find` — bounded pattern search
+
+Filters during the walk rather than after it, so a narrow search over a
+huge tree doesn't pay the cost of collecting everything first.
+
+```
+$ gaz find "*.xml" /data/dataset --size ">1M"
+path                                type  size
+----------------------------------  ----  -----
+/data/dataset/train/ann/0042.xml    file  1.2 MB
+
+Scanned 1,204 dirs / 964,012 files in 6.1s. Complete.
+```
+
+### `gaz dup` — duplicate files by content hash
+
+Groups candidates by size first (cheap), then hashes only same-size groups
+under a separate `--max-hash-seconds` budget, and reports reclaimable space.
+
+```
+$ gaz dup /data/dataset
+path (first copy)                    copies  size_each  reclaimable
+------------------------------------  ------  ---------  -----------
+/data/dataset/train/images/0001.jpg  3       241.2 KB   482.4 KB
+
+Total: 1 duplicate sets, 482.4 KB reclaimable
+Hashed 6 candidate files. Complete.
+Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
+```
+
+### `gaz stale` — old files worth archiving or deleting
+
+```
+$ gaz stale /data/dataset --older-than 180d --size ">100M"
+path                                age   size
+----------------------------------  ----  ------
+/data/dataset/exports/old_run.tar   210d  1.2 GB
+
+Total: 1 files older than 180d, 1.2 GB
+Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
+```
+
+### `gaz empty` — dead directories
+
+Finds directories with no files anywhere in their subtree — debris from
+partial deletions or failed extraction jobs.
+
+```
+$ gaz empty /data/dataset
+dir
+------------------------------------
+/data/dataset/train/images/.tmp_abc
+
+Total: 1 empty directories
+Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
+```
+
+## The output contract
+
+Every command prints a table, then a one-line natural-language status.
+Complete:
+
+```
+Scanned 1,204 dirs / 412,003 files in 8.2s. Complete.
+```
+
+Truncated — never presented as if it were the full answer:
+
+```
+Stopped at the 30.0s limit after 1,204 dirs / 412,003 files. Numbers
+below are a lower bound. Re-run with --max-seconds 300 for a fuller
+picture.
+```
+
+Exit code is always `0` on a successful run, including truncated ones —
+partial is a normal outcome, not an error. The status line is what tells
+you, and any agent reading your output, how much to trust the numbers.
+
+See [DESIGN.md](DESIGN.md) for the full design rationale, and
+[AGENTS.md](AGENTS.md) if you're an AI agent working in this repo.
+
+## Why "gazetteer"
+
+A gazetteer is a geographic index — compiled once from survey work, then
+consulted instead of re-surveying. That's the plan here too: a future
+`gaz scan` walks a tree once and stores the result, so later commands
+answer from an index in milliseconds instead of re-walking terabytes.
+Installed as `gazetteer`, typed as `gaz`.
+
+## Status
+
+v0: the bounded walker plus `ext`, `tree`, `find`, `dup`, `stale`, and
+`empty`. No caching yet — every command does a live bounded walk. See
+DESIGN.md's "Later phases" for what's planned (a SQLite-backed cache, a
+`gaz scan` manifest, CV-dataset-aware commands, an MCP server).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -9,6 +9,7 @@ description = "Bounded structural queries for huge directory trees"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "click>=8.1",
 ]
