@@ -21,6 +21,16 @@ answer that never arrives. That's the whole product.
 ## Install
 
 ```
+pip install gaz
+```
+
+(The PyPI distribution is named `gaz`, not `gazetteer` — PyPI's admin
+name policy blocks the latter as a generic word. The command, the
+`import gazetteer` package internals, and everything else are unaffected.)
+
+### Developing locally
+
+```
 uv pip install -e ".[dev]"
 ```
 
@@ -158,7 +168,8 @@ A gazetteer is a geographic index — compiled once from survey work, then
 consulted instead of re-surveying. That's the plan here too: a future
 `gaz scan` walks a tree once and stores the result, so later commands
 answer from an index in milliseconds instead of re-walking terabytes.
-Installed as `gazetteer`, typed as `gaz`.
+Installed as `gaz` on PyPI (`gazetteer` was blocked by PyPI's name policy),
+typed as `gaz`.
 
 ## Status
 

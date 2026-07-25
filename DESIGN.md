@@ -15,9 +15,13 @@ are hard to understand structurally. The standard tools fail in three specific w
 `gaz` is a Click-based CLI that answers structural questions about huge trees under
 explicit time, count, and output budgets — and always says clearly when it stopped early.
 
-- **Package (PyPI):** `gazetteer`
+- **Package (PyPI):** `gaz`
 - **Command:** `gaz`
-- Both verified unclaimed on PyPI and clear on PATH as of 2026-07-25.
+- `gazetteer` was the original intended package name but is blocked by PyPI's
+  admin-side name policy (confirmed via a rejected upload and a genuine 404 on
+  the project page, 2026-07-25) — likely flagged as a generic dictionary word.
+  Renamed the distribution to `gaz`; the internal Python package
+  (`import gazetteer`, `src/gazetteer/`) and the `gaz` command are unaffected.
 
 ## Core principle
 

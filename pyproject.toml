@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gazetteer"
+name = "gaz"
 version = "0.1.0"
 description = "Bounded structural queries for huge directory trees"
 readme = "README.md"
