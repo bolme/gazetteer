@@ -231,19 +231,20 @@ See [DESIGN.md](DESIGN.md) for the full design rationale, and
 ## Why "gazetteer"
 
 A gazetteer is a geographic index — compiled once from survey work, then
-consulted instead of re-surveying. That's the plan here too: a future
-`gaz scan` walks a tree once and stores the result, so later commands
-answer from an index in milliseconds instead of re-walking terabytes.
-Installed as `gaz` on PyPI (`gazetteer` was blocked by PyPI's name policy),
-typed as `gaz`.
+consulted instead of re-surveying. That's the idea behind the name: a
+possible future caching command could walk a tree once and store the
+result, so later commands answer from an index in milliseconds instead of
+re-walking terabytes. Not built yet — see [DESIGN.md](DESIGN.md)'s "Later
+phases" for the sketch. Installed as `gaz` on PyPI (`gazetteer` was
+blocked by PyPI's name policy), typed as `gaz`.
 
 ## Status
 
 v0: the bounded walker plus `ext`, `tree`, `find`, `dup`, `stale`, `empty`,
 and the single-file `preview`/`convert` pair. No caching yet — every
-command does a live bounded walk or a live conversion. See DESIGN.md's
-"Later phases" for what's planned (a SQLite-backed cache, a `gaz scan`
-manifest, CV-dataset-aware commands, an MCP server).
+command does a live bounded walk or a live conversion. See
+[DESIGN.md](DESIGN.md)'s "Later phases" for what's planned (a
+SQLite-backed cache, CV-dataset-aware commands, an MCP server).
 
 ## License
 
