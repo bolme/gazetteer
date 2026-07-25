@@ -36,8 +36,11 @@ def human_size(n_bytes: int) -> str:
     """Render a byte count as e.g. '16.5 MB', matching -h conventions."""
     size = float(n_bytes)
     for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
-        if size < 1024 or unit == "PB":
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        # Round before comparing so e.g. 1023.96 KB displays as 1.0 MB
+        # instead of the misleading "1024.0 KB".
+        rounded = round(size, 0 if unit == "B" else 1)
+        if rounded < 1024 or unit == "PB":
+            return f"{rounded:.0f} {unit}" if unit == "B" else f"{rounded:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} PB"
 
