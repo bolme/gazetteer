@@ -24,5 +24,8 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/gazetteer"]
 
+[tool.hatch.build]
+dev-mode-dirs = ["src"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
