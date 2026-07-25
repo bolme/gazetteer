@@ -1,0 +1,232 @@
+# gazetteer (`gaz`) — Design
+
+## Problem
+
+Computer-vision datasets in the multi-terabyte range (images, video, XML, CSV, JSON)
+are hard to understand structurally. The standard tools fail in three specific ways:
+
+1. **They hang.** `find . | grep ...` or `du -d1 .` runs for minutes or hours with no
+   output and no indication of progress.
+2. **They flood.** When they do return, they emit hundreds of thousands of lines,
+   burying the terminal and blowing out an LLM's context window.
+3. **They're all-or-nothing.** Ctrl-C gives you nothing. There's no "here's what I
+   learned in 30 seconds."
+
+`gaz` is a Click-based CLI that answers structural questions about huge trees under
+explicit time, count, and output budgets — and always says clearly when it stopped early.
+
+- **Package (PyPI):** `gazetteer`
+- **Command:** `gaz`
+- Both verified unclaimed on PyPI and clear on PATH as of 2026-07-25.
+
+## Core principle
+
+> Every operation is bounded, and every truncated result says so.
+
+A partial answer delivered in 30 seconds is more useful than a complete answer that
+never arrives. This is the whole product. Do not add a feature that can run unbounded.
+
+## Design decisions
+
+| Decision | Choice | Why |
+|---|---|---|
+| Walker | One shared bounded walker in `walk.py`, used by every command | Single place where limits, symlinks, and permission errors are handled correctly |
+| Directory iteration | `os.scandir`, not `os.walk` | `scandir` returns `stat` data from the directory read, avoiding a syscall per file |
+| Symlinks | Not followed by default | Loops are common in dataset trees and will hang the walk |
+| Filesystems | Do not cross by default | Keeps network mounts from silently joining a local scan |
+| Permission errors | Skip, count, report total at the end | One unreadable directory should not kill a 4-hour scan |
+| Output | Plain aligned text by default, `--json` for machines | Plain text is compact in LLM context; `rich` markup is not |
+| Exit code | Always `0` on a successful run, including partial ones | Partial is a normal outcome, not an error. Status goes in the output. |
+
+## Limits
+
+Three independent budgets, each with a flag. The walk stops when **any** is hit.
+
+- `--max-seconds` (default `30`) — wall-clock budget
+- `--max-entries` (default `1_000_000`) — filesystem entries visited
+- `--max-rows` (default `50`) — rows printed; aggregation continues past this
+
+`--max-depth` is a scoping flag, not a budget — it changes what "complete" means.
+
+## Output contract
+
+Every command prints a table, then a one-line natural-language status. Both humans
+and LLMs read the status line to know how much to trust the numbers.
+
+Complete:
+
+```
+Scanned 1,204 dirs / 412,003 files in 8.2s. Complete.
+```
+
+Truncated:
+
+```
+Stopped at the 30s limit after 1,204 dirs / 412,003 files (~14% of an
+estimated 2.9M). Numbers below are a lower bound. Re-run with
+--max-seconds 300 for a fuller picture.
+```
+
+Rules for the status line:
+- Say what stopped it, and what the user should change to get further.
+- Never present a partial number as if it were total. Say "at least" or "lower bound."
+- Report skipped/unreadable paths as a count, not a list.
+- Say where the data came from — a live walk or a cached scan, and how old it is.
+
+## Cache
+
+Repeat structural questions about the same tree are the common case, and re-walking
+terabytes to answer them is the main cost. `gaz scan` walks once and stores the result
+so later commands answer from the database in milliseconds.
+
+**Location:** `~/.gazetteer/cache.db`, overridable with `GAZETTEER_HOME`.
+Created on first use. One SQLite file, WAL mode.
+
+SQLite is stdlib, single-file, and indexes cleanly into the tens of millions of rows —
+so this adds no dependency. (This supersedes the earlier NDJSON manifest plan: NDJSON
+requires a full re-read for every query, which defeats the purpose.)
+
+### Schema
+
+```sql
+scans(id, root, started_at, finished_at, status, max_depth,
+      cross_fs, follow_symlinks, n_dirs, n_files, n_bytes, n_errors)
+      -- status: running | complete | truncated | aborted
+
+entries(scan_id, path, parent, name, ext, size, mtime, is_dir)
+      -- indexes: (scan_id, ext), (scan_id, parent), (scan_id, path)
+```
+
+Store full paths as text initially. If the DB gets uncomfortably large (roughly
+150 bytes/file, so ~1.5 GB at 10M files), intern directory paths into a separate
+table and store `parent_id` — but only once that's an actual problem.
+
+Write in batched transactions of ~10k rows so an interrupted scan leaves usable data
+rather than nothing.
+
+### Cache resolution
+
+This logic lives in one place (`cache.py`) and every command calls it. The ladder:
+
+1. **Fresh, complete, covering scan** → serve from cache.
+   A scan covers a query if its root is the query path or an ancestor, it finished
+   `complete`, and its `max_depth` doesn't cut off the requested subtree.
+2. **Stale, truncated, or aborted scan** → walk live by default, but mention the cache
+   in the status line so the user can opt in. A truncated or aborted scan may only
+   serve queries where the query root equals the scan root, and its results are always
+   labeled a lower bound.
+3. **No usable cache** → live bounded walk. This is v0 behavior and always works.
+4. **Any cache error at all** — missing file, lock contention, corrupt DB, schema
+   mismatch — → warn on stderr, fall back to a live walk, continue.
+
+> The cache is an optimization, never a dependency. No command may fail because the
+> cache is unavailable, and no command requires a prior scan.
+
+### Flags
+
+Shared by every read command:
+
+- `--cache / --no-cache` (default: use cache when one qualifies)
+- `--max-age DURATION` (default `24h`) — older scans are stale
+- `--refresh` — ignore the cache, walk live, and write the result back
+
+`gaz scan [PATH]` takes the standard limit flags. A scan stopped by a limit is stored
+with `status=truncated` and remains useful under the rules above.
+
+### Staleness
+
+Age-based only. Do not attempt to detect filesystem changes — at this scale any check
+cheap enough to run is unreliable, and any check reliable enough is as expensive as
+rescanning. The honest approach is to report the scan's age and let the user decide.
+
+### Management
+
+- `gaz cache list` — scans on record: root, age, status, entry count, size on disk
+- `gaz cache rm ROOT` / `gaz cache prune --older-than 30d`
+- `gaz cache path` — print the DB location
+
+### Status lines
+
+```
+412,003 files from cache (scanned 3h ago, complete).
+```
+
+```
+Walked live in 8.2s. A cached scan of /data exists but is 4 days old;
+pass --max-age 7d to use it, or --refresh to rebuild.
+```
+
+```
+1,204 dirs from cache (scanned 2h ago, truncated at the 60s limit).
+Numbers are a lower bound. Re-run: gaz scan /data --max-seconds 600
+```
+
+## Layout
+
+```
+gazetteer/
+├── pyproject.toml          # [project.scripts] gaz = "gazetteer.cli:main"
+├── src/gazetteer/
+│   ├── cli.py              # click group + command definitions
+│   ├── walk.py             # bounded walker — the one core primitive
+│   ├── cache.py            # SQLite store + cache resolution (phase 2)
+│   └── report.py           # table + status-line rendering
+└── tests/
+```
+
+Four modules. Resist splitting further until one exceeds ~300 lines.
+
+Commands never touch SQL or `os.scandir` directly. They ask `cache.py` for a result
+set; it either answers from the DB or delegates to `walk.py`. That single seam is what
+keeps the cached and uncached paths from drifting apart.
+
+## v0 scope
+
+Build the walker first, then these three commands against it:
+
+- `gaz tree [PATH]` — depth-limited structure with per-directory file counts and sizes
+- `gaz ext [PATH]` — file-extension breakdown (count, total size, median size).
+  This is the highest-value command for CV datasets and should land first.
+- `gaz find PATTERN [PATH]` — bounded search, filtering during the walk rather than
+  after it
+
+Deferred until the above are solid: `gaz du`, `gaz scan` (manifest).
+
+## Later phases
+
+**Phase 2 — cache.** `gaz scan` plus the SQLite store and resolution ladder described
+above. Land the store and `gaz cache list` first, then wire commands to the resolver
+one at a time — each should keep working unchanged if the cache is deleted mid-way.
+
+**Phase 3 — CV-aware.** Commands that understand dataset conventions: train/val/test
+split balance, annotation-to-image pairing, orphaned labels, class distribution from
+COCO/VOC/YOLO files.
+
+**Phase 4 — MCP server.** Expose the same commands as MCP tools. The output contract
+above is already designed for this: bounded output and an explicit
+completeness signal are exactly what an agent needs to avoid acting on partial data.
+
+## Non-goals
+
+- No progress bars, TUI, or interactive browsing. `ncdu` exists.
+- No config file. Flags and sensible defaults only.
+- No plugin system, no abstract base classes, no dependency injection.
+- No async or multiprocessing in v0. Add it only after profiling proves the walk is
+  I/O-bound in a way threading actually fixes.
+- No database beyond stdlib SQLite. No server, no ORM, no migration framework — on a
+  schema change, drop the cache and rescan.
+- No cache write-back from read commands. Only `gaz scan` and `--refresh` write.
+  Otherwise a `gaz find` with tight limits would poison the cache with partial data.
+
+## Conventions for contributors and agents
+
+- Dependencies: `click` only for v0. Adding one requires a note in this file.
+- Every command routes through `walk.py`. If a command needs its own traversal,
+  that's a signal the walker's interface is wrong — fix the walker.
+- Test the walker against a fixture tree containing a symlink loop, an unreadable
+  directory, and a deeply nested path. These are the cases that break naive walkers.
+- Every command needs a test asserting it produces correct output with the cache
+  deleted, and a second asserting cached and live results agree on the same tree.
+- Test the cache against a corrupt DB file and a read-only `~/.gazetteer/`. Both must
+  warn and fall back, not raise.
+- Prefer deleting code to adding a flag.
