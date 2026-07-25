@@ -14,6 +14,11 @@ dependencies = [
     "click>=8.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/bolme/gazetteer"
+Repository = "https://github.com/bolme/gazetteer"
+Issues = "https://github.com/bolme/gazetteer/issues"
+
 [project.scripts]
 gaz = "gazetteer.cli:main"
 
