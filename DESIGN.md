@@ -165,6 +165,40 @@ pass --max-age 7d to use it, or --refresh to rebuild.
 Numbers are a lower bound. Re-run: gaz scan /data --max-seconds 600
 ```
 
+## Preview and convert
+
+`gaz preview FILE` and `gaz convert FILE -o OUT` look *inside* a single
+file rather than answering structural questions about a tree — the
+natural next step after `gaz find`/`gaz tree` locates something worth
+reading. Both share one dispatch function, `convert.convert_to_text()`.
+
+- **preview**: bounded to a terminal. Converts the file to readable text,
+  then shows up to `--max-lines` (default `50`) of it, or the whole file
+  with `--full`. Same "bounded, and says so when truncated" contract as
+  every other command.
+- **convert**: unbounded, writes the full result to `-o OUTPUT`. Binary
+  formats only (DOCX/PPTX/XLSX/PDF → MD/TXT/CSV) — JSON/YAML/TOML/XML are
+  already text, so `convert` refuses them (`gaz preview` is the right tool)
+  rather than growing into a general-purpose format translator.
+
+Converter priority per format, each step attempted only if the previous
+one is unavailable: `pandoc`/`pdftotext` (if on `$PATH`) → the matching
+optional Python library from the `gaz[preview]` extra → a clear error
+naming exactly what's missing. JSON/XML/CSV pretty-printing needs nothing
+beyond stdlib; YAML and TOML-on-3.9/3.10 need `PyYAML`/`tomli` (no stdlib
+option exists for either), so those two are the only "always needed for
+this format to work at all" entries in the extra.
+
+Neither command takes the tree-walking budget flags (`--max-entries`,
+`--ext`, `--size`, ...) — they operate on one file, not a directory. The
+one bounded-operation nod is `--max-seconds`, which caps a
+`pandoc`/`pdftotext` subprocess call: a timeout is reported through the
+result (`preview` says so and suggests a larger budget or `gaz convert`;
+`convert` still writes whatever was produced) rather than raised — the one
+genuine exit-non-zero case for these two commands is a file they cannot
+convert *at all* (no converter available, or the input doesn't parse),
+which is a real failure, not a truncation.
+
 ## Layout
 
 ```
@@ -174,11 +208,12 @@ gazetteer/
 │   ├── cli.py              # click group + command definitions
 │   ├── walk.py             # bounded walker — the one core primitive
 │   ├── cache.py            # SQLite store + cache resolution (phase 2)
-│   └── report.py           # table + status-line rendering
+│   ├── report.py           # table + status-line rendering
+│   └── convert.py          # format detection + single-file conversion (preview/convert)
 └── tests/
 ```
 
-Four modules. Resist splitting further until one exceeds ~300 lines.
+Five modules. Resist splitting further until one exceeds ~300 lines.
 
 Commands never touch SQL or `os.scandir` directly. They ask `cache.py` for a result
 set; it either answers from the DB or delegates to `walk.py`. That single seam is what
@@ -195,6 +230,11 @@ Build the walker first, then these three commands against it:
   after it
 
 Deferred until the above are solid: `gaz du`, `gaz scan` (manifest).
+
+What actually shipped in v0 beyond this original three-command scope:
+`gaz dup`, `gaz stale`, `gaz empty` (cleanup-focused commands built on the
+same walker), and `gaz preview`/`gaz convert` (single-file inspection —
+see "Preview and convert" above). `gaz du` and `gaz scan` remain deferred.
 
 ## Later phases
 
@@ -224,13 +264,27 @@ completeness signal are exactly what an agent needs to avoid acting on partial d
 
 ## Conventions for contributors and agents
 
-- Dependencies: `click` only for v0. Adding one requires a note in this file.
+- Dependencies: `click` only in the core (required) install. Adding a required
+  dependency needs a note in this file. Format-specific libraries for
+  `preview`/`convert` (PyYAML, tomli, python-docx, python-pptx, openpyxl,
+  pypdf) are the one exception — they live in the optional `gaz[preview]`
+  extra, never core `dependencies`, and every format they cover must degrade
+  gracefully (external tool if present, else the optional lib if installed,
+  else a clear error naming what to install) rather than making `gaz`
+  uninstallable without them.
 - Every command routes through `walk.py`. If a command needs its own traversal,
   that's a signal the walker's interface is wrong — fix the walker.
+  (`preview`/`convert` are the exception: they operate on one file, not a
+  tree, so they route through `convert.py` instead.)
 - Test the walker against a fixture tree containing a symlink loop, an unreadable
   directory, and a deeply nested path. These are the cases that break naive walkers.
 - Every command needs a test asserting it produces correct output with the cache
   deleted, and a second asserting cached and live results agree on the same tree.
 - Test the cache against a corrupt DB file and a read-only `~/.gazetteer/`. Both must
   warn and fall back, not raise.
+- Test every `convert.py` converter's missing-dependency path (fake
+  `shutil.which`/module availability) so the "no converter" error message
+  stays accurate as new formats are added, and gate any test needing a real
+  `pandoc`/`pdftotext`/optional library behind a skip so the suite stays
+  green without them installed.
 - Prefer deleting code to adding a flag.

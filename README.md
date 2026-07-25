@@ -28,6 +28,16 @@ pip install gaz
 name policy blocks the latter as a generic word. The command, the
 `import gazetteer` package internals, and everything else are unaffected.)
 
+`gaz preview`/`gaz convert` work out of the box for JSON/CSV/XML/Markdown
+(stdlib) and for anything `pandoc`/`pdftotext` handle if installed
+separately. For YAML/TOML pretty-printing and Python fallbacks when
+`pandoc`/`pdftotext` aren't available (DOCX/PPTX/XLSX/PDF), install the
+extra:
+
+```
+pip install "gaz[preview]"
+```
+
 ### Developing locally
 
 ```
@@ -138,6 +148,57 @@ Total: 1 empty directories
 Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ```
 
+### `gaz preview` — a bounded, format-aware look inside one file
+
+Pretty-prints JSON/YAML/TOML/XML/CSV and converts DOCX/PPTX/XLSX/PDF to
+readable Markdown/text (via `pandoc`/`pdftotext` if installed, or the
+`gaz[preview]` extra's Python fallbacks), then shows up to `--max-lines`
+(default 50) of the result.
+
+```
+$ gaz preview annotations.json
+{
+  "image": "0001.jpg",
+  "boxes": [
+    [10, 20, 100, 200]
+  ],
+  "label": "car"
+}
+
+Showing all 8 lines (method: stdlib-json). Complete.
+```
+
+```
+$ gaz preview report.docx
+[converted markdown, up to 50 lines]
+
+Showing 50 of 812 lines (method: pandoc). Re-run with --full to see
+everything, or `gaz convert` to save it to a file.
+```
+
+`--full` shows the whole file regardless of `--max-lines`. If no converter
+is available for a format, `preview` fails with a message naming exactly
+what to install — it never guesses or emits garbage.
+
+### `gaz convert` — save a converted file to disk
+
+Same conversion machinery as `preview`, unbounded, written to `-o OUTPUT`
+instead of a terminal. Binary formats only (DOCX/PPTX/XLSX/PDF → MD/TXT/CSV)
+— JSON/YAML/TOML/XML are already text, so `gaz preview` is the right tool
+for those instead.
+
+```
+$ gaz convert report.docx -o report.md
+Wrote 41.2 KB to report.md (method: pandoc). Complete.
+
+$ gaz convert data.xlsx -o data.csv
+Wrote 3.1 KB to data.csv (method: openpyxl). Complete.
+```
+
+Output format is inferred from `-o`'s extension; `--to FORMAT` overrides.
+A conversion timeout (`--max-seconds`, default 120) still writes whatever
+was produced and says so, rather than losing the work.
+
 ## The output contract
 
 Every command prints a table, then a one-line natural-language status.
@@ -155,9 +216,14 @@ below are a lower bound. Re-run with --max-seconds 300 for a fuller
 picture.
 ```
 
-Exit code is always `0` on a successful run, including truncated ones —
-partial is a normal outcome, not an error. The status line is what tells
-you, and any agent reading your output, how much to trust the numbers.
+For the tree-walking commands, exit code is always `0` on a successful
+run, including truncated ones — partial is a normal outcome, not an
+error. The status line is what tells you, and any agent reading your
+output, how much to trust the numbers. `preview`/`convert` are the one
+exception: a truncated conversion still exits `0` and says so (same
+philosophy), but a file `preview`/`convert` genuinely cannot handle at
+all — no converter installed, unparseable input — is a real failure and
+exits non-zero with a message naming exactly what's missing.
 
 See [DESIGN.md](DESIGN.md) for the full design rationale, and
 [AGENTS.md](AGENTS.md) if you're an AI agent working in this repo.
@@ -173,10 +239,11 @@ typed as `gaz`.
 
 ## Status
 
-v0: the bounded walker plus `ext`, `tree`, `find`, `dup`, `stale`, and
-`empty`. No caching yet — every command does a live bounded walk. See
-DESIGN.md's "Later phases" for what's planned (a SQLite-backed cache, a
-`gaz scan` manifest, CV-dataset-aware commands, an MCP server).
+v0: the bounded walker plus `ext`, `tree`, `find`, `dup`, `stale`, `empty`,
+and the single-file `preview`/`convert` pair. No caching yet — every
+command does a live bounded walk or a live conversion. See DESIGN.md's
+"Later phases" for what's planned (a SQLite-backed cache, a `gaz scan`
+manifest, CV-dataset-aware commands, an MCP server).
 
 ## License
 

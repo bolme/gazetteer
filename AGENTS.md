@@ -43,6 +43,7 @@ src/gazetteer/
 ├── walk.py      # the one bounded walker — every command routes through this
 ├── filters.py   # shared --max-*/--ext/--pattern/--size options + matches_filters
 ├── report.py    # human_size/human_duration, parsing, table + status-line rendering
+├── convert.py   # format detection + single-file conversion, used by preview/convert
 └── cache.py     # SQLite store + resolution ladder (phase 2, not yet built)
 tests/           # one test file per source module, plus CLI-level test files
 ```
@@ -59,11 +60,21 @@ tests/           # one test file per source module, plus CLI-level test files
 
 ## Conventions
 
-- **Dependencies:** `click` only (plus `pytest` for dev). Adding a runtime
-  dependency requires a note in DESIGN.md explaining why.
-- **Exit codes:** always `0` on a successful run, including truncated ones.
-  Partial is a normal outcome, not an error — status goes in the output
-  text, never the exit code.
+- **Dependencies:** `click` only (plus `pytest` for dev) in the core install.
+  Format-specific libraries for `preview`/`convert` (PyYAML, tomli,
+  python-docx, python-pptx, openpyxl, pypdf) live in the optional
+  `gaz[preview]` extra — core `gaz` must keep working with none of them
+  installed. Adding a new *required* runtime dependency requires a note in
+  DESIGN.md explaining why; adding to `gaz[preview]` is lower-stakes but
+  still needs a fallback path (see `convert.py`'s "stdlib/pandoc first,
+  optional Python lib second, clear error naming what's missing third").
+- **Exit codes:** always `0` on a successful run, including truncated ones,
+  for every tree-walking command. Partial is a normal outcome, not an
+  error — status goes in the output text, never the exit code. The one
+  exception is `preview`/`convert`: a file they genuinely cannot handle at
+  all (no converter installed, unparseable input) is a real failure and
+  exits non-zero with an actionable message — a truncated *conversion*
+  (timed out mid-pandoc-call) still follows the exit-0 rule.
 - **Symlinks:** not followed by default (loops are common in dataset
   trees). Filesystems are not crossed by default. Don't change either
   default without updating DESIGN.md's rationale table.
