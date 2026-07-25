@@ -182,3 +182,100 @@ def test_max_entries_zero_still_produces_valid_output(tmp_path):
 
     assert result.exit_code == 0
     assert "lower bound" in result.output
+
+
+# --- Total-line truncation qualification -----------------------------
+# DESIGN.md: "Never present a partial number as if it were total." Each
+# command's Total line must say so itself, not just rely on the separate
+# status_line mentioning the walk was cut short.
+
+
+def _many_files(tmp_path, n=20):
+    for i in range(n):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+
+def test_ext_total_is_qualified_when_walk_truncated(tmp_path):
+    _many_files(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["ext", str(tmp_path), "--max-entries", "5"])
+
+    assert result.exit_code == 0
+    assert "Total (at least, walk stopped early):" in result.output
+
+
+def test_ext_total_is_unqualified_when_walk_completes(tmp_path):
+    _many_files(tmp_path, n=3)
+    runner = CliRunner()
+    result = runner.invoke(main, ["ext", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Total: " in result.output
+    assert "at least" not in result.output
+
+
+def test_tree_total_is_qualified_when_walk_truncated(tmp_path):
+    _many_files(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["tree", str(tmp_path), "--max-entries", "5"])
+
+    assert result.exit_code == 0
+    assert "Total (at least, walk stopped early):" in result.output
+
+
+def test_tree_total_mentions_both_filter_and_truncation(tmp_path):
+    _many_files(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["tree", str(tmp_path), "--max-entries", "5", "--ext", ".txt"]
+    )
+
+    assert result.exit_code == 0
+    assert "matching filter" in result.output
+    assert "at least" in result.output
+
+
+def test_stale_total_is_qualified_when_walk_truncated(tmp_path):
+    _many_files(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["stale", str(tmp_path), "--older-than", "0s", "--max-entries", "5"]
+    )
+
+    assert result.exit_code == 0
+    assert "Total (at least, walk stopped early):" in result.output
+
+
+def test_dup_total_blames_walk_when_walk_is_the_truncated_part(tmp_path):
+    _many_files(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["dup", str(tmp_path), "--max-entries", "5"])
+
+    assert result.exit_code == 0
+    assert "Total (at least, walk stopped early):" in result.output
+
+
+def test_dup_total_blames_hashing_when_only_hashing_is_truncated(tmp_path):
+    (tmp_path / "a.txt").write_text("identical")
+    (tmp_path / "b.txt").write_text("identical")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["dup", str(tmp_path), "--max-hash-seconds", "0"]
+    )
+
+    assert result.exit_code == 0
+    assert "Total (at least, hashing stopped early):" in result.output
+    assert "walk stopped early" not in result.output
+
+
+def test_dup_total_unqualified_when_both_passes_complete(tmp_path):
+    (tmp_path / "a.txt").write_text("identical")
+    (tmp_path / "b.txt").write_text("identical")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["dup", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Total: 1 duplicate sets" in result.output
+    assert "at least" not in result.output

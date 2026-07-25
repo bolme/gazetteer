@@ -114,6 +114,34 @@ def render_table(rows: list[tuple], headers: tuple[str, ...]) -> str:
     return "\n".join(lines)
 
 
+def total_label(
+    result: WalkResult,
+    *,
+    filtered: bool = False,
+    complete: bool | None = None,
+    incomplete_reason: str = "walk stopped early",
+) -> str:
+    """Label for a command's 'Total: ...' line, qualified when the underlying data is incomplete.
+
+    A total computed from a truncated walk (or, for commands with a second
+    budgeted pass like `dup`'s hashing, a truncated second pass) is a lower
+    bound, not the real total, so the label itself must say so — the status
+    line's "lower bound" note talks about the walk's raw dirs/files count,
+    not this total. Pass `complete=` to fold in a second pass's own
+    completeness (defaults to the walk's), and `incomplete_reason=` so the
+    label names whichever pass actually stopped early.
+    """
+    is_complete = result.complete if complete is None else complete
+    parts = ["Total"]
+    if filtered:
+        parts.append("matching filter")
+    if not is_complete:
+        parts.append(f"at least, {incomplete_reason}")
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]} ({', '.join(parts[1:])})"
+
+
 def status_line(result: WalkResult, *, max_seconds: float) -> str:
     """Build the one-line completeness status required by every command."""
     dirs = f"{result.n_dirs:,}"

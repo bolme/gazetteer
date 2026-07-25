@@ -8,6 +8,7 @@ from gazetteer.report import (
     parse_size_filter,
     render_table,
     status_line,
+    total_label,
 )
 from gazetteer.walk import WalkResult
 
@@ -271,3 +272,48 @@ def test_status_line_formats_large_counts_with_commas():
 
     assert "1,204" in line
     assert "412,003" in line
+
+
+def test_total_label_complete_walk_is_unqualified():
+    result = _walk_result(complete=True)
+    assert total_label(result) == "Total"
+
+
+def test_total_label_truncated_walk_says_at_least():
+    result = _walk_result(complete=False)
+    label = total_label(result)
+
+    assert "Total" in label
+    assert "at least" in label
+    assert "walk stopped early" in label
+
+
+def test_total_label_filtered_and_complete():
+    result = _walk_result(complete=True)
+    assert total_label(result, filtered=True) == "Total (matching filter)"
+
+
+def test_total_label_filtered_and_truncated_mentions_both():
+    result = _walk_result(complete=False)
+    label = total_label(result, filtered=True)
+
+    assert "matching filter" in label
+    assert "at least" in label
+
+
+def test_total_label_complete_override_takes_precedence_over_walk_result():
+    # A command with a second budgeted pass (e.g. dup's hashing) can be
+    # complete at the walk level but incomplete overall, or vice versa.
+    complete_walk = _walk_result(complete=True)
+    assert "at least" in total_label(complete_walk, complete=False)
+
+    truncated_walk = _walk_result(complete=False)
+    assert total_label(truncated_walk, complete=True) == "Total"
+
+
+def test_total_label_custom_incomplete_reason():
+    result = _walk_result(complete=True)
+    label = total_label(result, complete=False, incomplete_reason="hashing stopped early")
+
+    assert "hashing stopped early" in label
+    assert "walk stopped early" not in label

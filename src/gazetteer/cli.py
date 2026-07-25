@@ -70,6 +70,14 @@ def ext(
     ]
     click.echo(report.render_table(truncated_rows, ("ext", "count", "total_size", "median_size")))
     click.echo()
+
+    matched_files = sum(len(sizes) for sizes in sizes_by_ext.values())
+    matched_bytes = sum(sum(sizes) for sizes in sizes_by_ext.values())
+    is_filtered = bool(extensions or patterns or size_filters)
+    click.echo(
+        f"{report.total_label(result, filtered=is_filtered)}: "
+        f"{matched_files:,} files, {report.human_size(matched_bytes)}"
+    )
     click.echo(report.status_line(result, max_seconds=max_seconds))
 
 
@@ -115,16 +123,13 @@ def tree(
 
     matched_files = sum(len(sizes) for sizes in stats.values())
     matched_bytes = sum(sum(sizes) for sizes in stats.values())
-    if extensions or patterns or size_filters:
-        click.echo(
-            f"Total (matching filter): {result.n_dirs:,} dirs walked, "
-            f"{matched_files:,} files, {report.human_size(matched_bytes)}"
-        )
-    else:
-        click.echo(
-            f"Total: {result.n_dirs:,} dirs, {result.n_files:,} files, "
-            f"{report.human_size(result.n_bytes)}"
-        )
+    is_filtered = bool(extensions or patterns or size_filters)
+    dirs_label = "dirs walked" if is_filtered else "dirs"
+    click.echo(
+        f"{report.total_label(result, filtered=is_filtered)}: "
+        f"{result.n_dirs:,} {dirs_label}, {matched_files:,} files, "
+        f"{report.human_size(matched_bytes)}"
+    )
     click.echo(report.status_line(result, max_seconds=max_seconds))
 
 
@@ -227,8 +232,10 @@ def stale(
     click.echo()
 
     total_bytes = sum(e.size for e in stale_entries)
+    is_filtered = bool(extensions or patterns or size_filters)
     click.echo(
-        f"Total: {len(stale_entries):,} files older than {older_than}, "
+        f"{report.total_label(result, filtered=is_filtered)}: "
+        f"{len(stale_entries):,} files older than {older_than}, "
         f"{report.human_size(total_bytes)}"
     )
     click.echo(report.status_line(result, max_seconds=max_seconds))
@@ -276,11 +283,12 @@ def empty(
     rows = [(d,) for d in truncated]
     click.echo(report.render_table(rows, ("dir",)))
     click.echo()
-    click.echo(f"Total: {len(empty_dirs):,} empty directories")
+    click.echo(f"{report.total_label(result)}: {len(empty_dirs):,} empty directories")
     if not result.complete:
         click.echo(
             "Warning: the walk stopped early, so some directories listed as empty "
-            "may simply be unvisited rather than truly empty."
+            "may simply be unvisited rather than truly empty, and there may be "
+            "more empty directories beyond what was walked."
         )
     click.echo(report.status_line(result, max_seconds=max_seconds))
 
@@ -357,8 +365,17 @@ def dup(
     click.echo()
 
     total_reclaimable = sum(group[0].size * (len(group) - 1) for group in dup_groups)
+    if not result.complete:
+        incomplete_reason = "walk stopped early"
+    else:
+        incomplete_reason = "hashing stopped early"
+    label = report.total_label(
+        result,
+        complete=result.complete and hash_complete,
+        incomplete_reason=incomplete_reason,
+    )
     click.echo(
-        f"Total: {len(dup_groups):,} duplicate sets, "
+        f"{label}: {len(dup_groups):,} duplicate sets, "
         f"{report.human_size(total_reclaimable)} reclaimable"
     )
 
