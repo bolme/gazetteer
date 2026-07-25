@@ -1,6 +1,12 @@
 import pytest
 
-from gazetteer.report import human_size, parse_size, parse_size_filter
+from gazetteer.report import (
+    human_duration,
+    human_size,
+    parse_duration,
+    parse_size,
+    parse_size_filter,
+)
 
 
 @pytest.mark.parametrize(
@@ -43,3 +49,31 @@ def test_human_size_roundtrip_style():
     assert human_size(0) == "0 B"
     assert human_size(1024) == "1.0 KB"
     assert "MB" in human_size(16_500_000)
+
+
+@pytest.mark.parametrize(
+    "text,expected_seconds",
+    [
+        ("30s", 30),
+        ("1m", 60),
+        ("6h", 6 * 3600),
+        ("90d", 90 * 86400),
+        ("2w", 2 * 7 * 86400),
+        ("1y", 365 * 86400),
+        ("90", 90),
+    ],
+)
+def test_parse_duration(text, expected_seconds):
+    assert parse_duration(text) == expected_seconds
+
+
+def test_parse_duration_rejects_garbage():
+    with pytest.raises(ValueError):
+        parse_duration("bogus")
+
+
+def test_human_duration_picks_sensible_unit():
+    assert human_duration(30) == "30s"
+    assert human_duration(3600) == "1h"
+    assert human_duration(90 * 86400) == "13w"
+    assert human_duration(400 * 86400) == "1.1y"

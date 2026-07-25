@@ -22,6 +22,15 @@ _SIZE_UNITS = {
     "TB": 1024**4,
 }
 
+_DURATION_UNITS = {
+    "s": 1,
+    "m": 60,
+    "h": 3600,
+    "d": 86400,
+    "w": 7 * 86400,
+    "y": 365 * 86400,
+}
+
 
 def human_size(n_bytes: int) -> str:
     """Render a byte count as e.g. '16.5 MB', matching -h conventions."""
@@ -55,6 +64,34 @@ def parse_size_filter(text: str) -> tuple[str, int]:
         raise ValueError(f"invalid size filter: {text!r}")
     op, size_text = match.groups()
     return (op or "="), parse_size(size_text)
+
+
+def parse_duration(text: str) -> float:
+    """Parse a duration like '30d', '6h', '2w', '1y' into seconds."""
+    match = re.fullmatch(r"\s*([0-9]*\.?[0-9]+)\s*([A-Za-z]*)\s*", text)
+    if not match:
+        raise ValueError(f"invalid duration: {text!r}")
+    number, unit = match.groups()
+    unit = unit.lower() or "s"
+    if unit not in _DURATION_UNITS:
+        raise ValueError(f"unknown duration unit {unit!r} in {text!r}")
+    return float(number) * _DURATION_UNITS[unit]
+
+
+def human_duration(seconds: float) -> str:
+    """Render an age in seconds as e.g. '3d', '5h', '42s'."""
+    seconds = abs(seconds)
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    if seconds < 3600:
+        return f"{seconds / 60:.0f}m"
+    if seconds < 86400:
+        return f"{seconds / 3600:.0f}h"
+    if seconds < 7 * 86400:
+        return f"{seconds / 86400:.0f}d"
+    if seconds < 365 * 86400:
+        return f"{seconds / (7 * 86400):.0f}w"
+    return f"{seconds / (365 * 86400):.1f}y"
 
 
 def render_table(rows: list[tuple], headers: tuple[str, ...]) -> str:

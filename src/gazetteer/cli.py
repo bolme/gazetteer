@@ -1,102 +1,23 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import os
 import statistics
+import time
 from collections import defaultdict
 
 import click
 
 from gazetteer import report, walk
-from gazetteer.walk import WalkEntry
-
-_LIMIT_OPTIONS = [
-    click.option("--max-seconds", default=30.0, show_default=True, help="Wall-clock budget."),
-    click.option("--max-entries", default=1_000_000, show_default=True, help="Filesystem entries visited."),
-    click.option("--max-rows", default=50, show_default=True, help="Rows printed."),
-    click.option("--max-depth", default=None, type=int, help="Depth to scope the walk to."),
-]
-
-_SIZE_HELP = (
-    "Only include files matching this size. Prefix with >, >=, <, <=, "
-    "or nothing for exact (e.g. --size '>1M', --size '<=2k'). "
-    "Repeatable; combine two for a range, e.g. --size '>1M' --size '<10M'."
+from gazetteer.filters import (
+    SIZE_HELP,
+    filter_options,
+    limit_options,
+    matches_filters,
+    validate_size_filters,
 )
-
-
-def _validate_size_filters(ctx, param, value):
-    for size_filter in value:
-        try:
-            report.parse_size_filter(size_filter)
-        except ValueError as e:
-            raise click.BadParameter(str(e), ctx=ctx, param=param)
-    return value
-
-
-_FILTER_OPTIONS = [
-    click.option(
-        "--ext",
-        "extensions",
-        multiple=True,
-        help="Only include files with this extension (e.g. --ext .jpg). Repeatable.",
-    ),
-    click.option(
-        "--pattern",
-        "patterns",
-        multiple=True,
-        help="Only include files/dirs whose name matches this glob (e.g. --pattern '*.jpg'). Repeatable.",
-    ),
-    click.option(
-        "--size",
-        "size_filters",
-        multiple=True,
-        callback=_validate_size_filters,
-        help=_SIZE_HELP,
-    ),
-]
-
-
-def limit_options(f):
-    for option in reversed(_LIMIT_OPTIONS):
-        f = option(f)
-    return f
-
-
-def filter_options(f):
-    for option in reversed(_FILTER_OPTIONS):
-        f = option(f)
-    return f
-
-
-_SIZE_OPS = {
-    ">": lambda size, bound: size > bound,
-    ">=": lambda size, bound: size >= bound,
-    "<": lambda size, bound: size < bound,
-    "<=": lambda size, bound: size <= bound,
-    "=": lambda size, bound: size == bound,
-}
-
-
-def matches_filters(
-    entry: WalkEntry,
-    extensions: tuple[str, ...],
-    patterns: tuple[str, ...],
-    size_filters: tuple[str, ...] = (),
-) -> bool:
-    """True if entry passes the --ext / --pattern / --size filters (AND'd together)."""
-    if extensions:
-        _, dot_ext = os.path.splitext(entry.name)
-        normalized = {e if e.startswith(".") else f".{e}" for e in extensions}
-        if dot_ext.lower() not in {e.lower() for e in normalized}:
-            return False
-    if patterns:
-        if not any(fnmatch.fnmatch(entry.name, p) for p in patterns):
-            return False
-    for size_filter in size_filters:
-        op, bound = report.parse_size_filter(size_filter)
-        if not _SIZE_OPS[op](entry.size, bound):
-            return False
-    return True
+from gazetteer.walk import WalkEntry
 
 
 @click.group()
@@ -221,8 +142,8 @@ def tree(
     "--size",
     "size_filters",
     multiple=True,
-    callback=_validate_size_filters,
-    help=_SIZE_HELP,
+    callback=validate_size_filters,
+    help=SIZE_HELP,
 )
 def find(
     pattern: str,
@@ -252,6 +173,218 @@ def find(
     click.echo(report.render_table(rows, ("path", "type", "size")))
     click.echo()
     click.echo(report.status_line(result, max_seconds=max_seconds))
+
+
+@main.command()
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option(
+    "--older-than",
+    "older_than",
+    default="90d",
+    show_default=True,
+    help="Only include files last modified more than this long ago (e.g. 90d, 6h, 2w, 1y).",
+)
+@limit_options
+@filter_options
+def stale(
+    path: str,
+    older_than: str,
+    max_seconds: float,
+    max_entries: int,
+    max_rows: int,
+    max_depth: int | None,
+    extensions: tuple[str, ...],
+    patterns: tuple[str, ...],
+    size_filters: tuple[str, ...],
+) -> None:
+    """Files not modified in a while — candidates for cleanup or archival."""
+    try:
+        min_age = report.parse_duration(older_than)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="'--older-than'")
+
+    result = walk.walk(
+        path,
+        max_seconds=max_seconds,
+        max_entries=max_entries,
+        max_depth=max_depth,
+    )
+
+    now = time.time()
+    stale_entries = [
+        e
+        for e in result.entries
+        if not e.is_dir and (now - e.mtime) >= min_age and matches_filters(e, extensions, patterns, size_filters)
+    ]
+    stale_entries.sort(key=lambda e: e.mtime)
+
+    truncated = stale_entries[:max_rows]
+    rows = [
+        (e.path, report.human_duration(now - e.mtime), report.human_size(e.size))
+        for e in truncated
+    ]
+    click.echo(report.render_table(rows, ("path", "age", "size")))
+    click.echo()
+
+    total_bytes = sum(e.size for e in stale_entries)
+    click.echo(
+        f"Total: {len(stale_entries):,} files older than {older_than}, "
+        f"{report.human_size(total_bytes)}"
+    )
+    click.echo(report.status_line(result, max_seconds=max_seconds))
+
+
+@main.command()
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@limit_options
+def empty(
+    path: str,
+    max_seconds: float,
+    max_entries: int,
+    max_rows: int,
+    max_depth: int | None,
+) -> None:
+    """Directories containing no files anywhere in their subtree."""
+    result = walk.walk(
+        path,
+        max_seconds=max_seconds,
+        max_entries=max_entries,
+        max_depth=max_depth,
+    )
+
+    root = os.path.abspath(path)
+    parent_of = {e.path: e.parent for e in result.entries if e.is_dir}
+    all_dirs = set(parent_of) | {root}
+
+    # A dir is empty (of files) if no file exists anywhere under it. Walk up
+    # from each dir that directly contains a file and mark every ancestor
+    # up to the root as non-empty.
+    non_empty_dirs = set()
+    for e in result.entries:
+        if e.is_dir:
+            continue
+        current = e.parent
+        while current and current not in non_empty_dirs:
+            non_empty_dirs.add(current)
+            if current == root:
+                break
+            current = parent_of.get(current)
+
+    empty_dirs = sorted(all_dirs - non_empty_dirs)
+    truncated = empty_dirs[:max_rows]
+
+    rows = [(d,) for d in truncated]
+    click.echo(report.render_table(rows, ("dir",)))
+    click.echo()
+    click.echo(f"Total: {len(empty_dirs):,} empty directories")
+    if not result.complete:
+        click.echo(
+            "Warning: the walk stopped early, so some directories listed as empty "
+            "may simply be unvisited rather than truly empty."
+        )
+    click.echo(report.status_line(result, max_seconds=max_seconds))
+
+
+@main.command()
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option(
+    "--max-hash-seconds",
+    default=30.0,
+    show_default=True,
+    help="Separate wall-clock budget for the hashing pass (after the walk completes).",
+)
+@limit_options
+@filter_options
+def dup(
+    path: str,
+    max_hash_seconds: float,
+    max_seconds: float,
+    max_entries: int,
+    max_rows: int,
+    max_depth: int | None,
+    extensions: tuple[str, ...],
+    patterns: tuple[str, ...],
+    size_filters: tuple[str, ...],
+) -> None:
+    """Duplicate files by content hash — grouped by size first, then hashed."""
+    result = walk.walk(
+        path,
+        max_seconds=max_seconds,
+        max_entries=max_entries,
+        max_depth=max_depth,
+    )
+
+    candidates = [
+        e
+        for e in result.entries
+        if not e.is_dir and e.size > 0 and matches_filters(e, extensions, patterns, size_filters)
+    ]
+
+    by_size: dict[int, list[WalkEntry]] = defaultdict(list)
+    for e in candidates:
+        by_size[e.size].append(e)
+    size_groups = [group for group in by_size.values() if len(group) > 1]
+
+    hash_start = time.monotonic()
+    hash_complete = True
+    hash_stop_reason = None
+    by_hash: dict[tuple[int, str], list[WalkEntry]] = defaultdict(list)
+    n_hashed = 0
+
+    for group in size_groups:
+        for e in group:
+            if time.monotonic() - hash_start >= max_hash_seconds:
+                hash_complete = False
+                hash_stop_reason = f"{max_hash_seconds}s hashing limit"
+                break
+            digest = _hash_file(e.path)
+            if digest is not None:
+                by_hash[(e.size, digest)].append(e)
+                n_hashed += 1
+        else:
+            continue
+        break
+
+    dup_groups = [group for group in by_hash.values() if len(group) > 1]
+    dup_groups.sort(key=lambda group: group[0].size * len(group), reverse=True)
+
+    rows = []
+    for group in dup_groups[:max_rows]:
+        reclaimable = group[0].size * (len(group) - 1)
+        rows.append((group[0].path, len(group), report.human_size(group[0].size), report.human_size(reclaimable)))
+
+    click.echo(report.render_table(rows, ("path (first copy)", "copies", "size_each", "reclaimable")))
+    click.echo()
+
+    total_reclaimable = sum(group[0].size * (len(group) - 1) for group in dup_groups)
+    click.echo(
+        f"Total: {len(dup_groups):,} duplicate sets, "
+        f"{report.human_size(total_reclaimable)} reclaimable"
+    )
+
+    if hash_complete:
+        click.echo(f"Hashed {n_hashed:,} candidate files. Complete.")
+    else:
+        suggested = max(int(max_hash_seconds * 10), int(max_hash_seconds) + 30, 60)
+        click.echo(
+            f"Hashing stopped at the {hash_stop_reason} after {n_hashed:,} of "
+            f"{sum(len(g) for g in size_groups):,} same-size candidates. "
+            f"Duplicate sets below are a lower bound. Re-run with --max-hash-seconds "
+            f"{suggested} for a fuller picture."
+        )
+    click.echo(report.status_line(result, max_seconds=max_seconds))
+
+
+def _hash_file(path: str, chunk_size: int = 1024 * 1024) -> str | None:
+    """SHA-256 of a file's contents, or None if it can't be read."""
+    hasher = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                hasher.update(chunk)
+    except OSError:
+        return None
+    return hasher.hexdigest()
 
 
 if __name__ == "__main__":
