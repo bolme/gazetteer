@@ -205,15 +205,17 @@ which is a real failure, not a truncation.
 gazetteer/
 ├── pyproject.toml          # [project.scripts] gaz = "gazetteer.cli:main"
 ├── src/gazetteer/
-│   ├── cli.py              # click group + command definitions
+│   ├── cli.py              # click group + the six tree-walking commands
+│   ├── preview_cli.py      # the preview/convert commands (single-file, no walker)
 │   ├── walk.py             # bounded walker — the one core primitive
+│   ├── filters.py          # shared --max-*/--ext/--pattern/--size options
 │   ├── cache.py            # SQLite store + cache resolution (phase 2)
 │   ├── report.py           # table + status-line rendering
-│   └── convert.py          # format detection + single-file conversion (preview/convert)
+│   └── convert.py          # format detection + single-file conversion (used by preview_cli.py)
 └── tests/
 ```
 
-Five modules. Resist splitting further until one exceeds ~300 lines.
+Seven modules. Resist splitting further until one exceeds ~300 lines.
 
 Commands never touch SQL or `os.scandir` directly. They ask `cache.py` for a result
 set; it either answers from the DB or delegates to `walk.py`. That single seam is what

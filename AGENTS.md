@@ -39,13 +39,14 @@ stopped it and how to get further (see `report.status_line`).
 
 ```
 src/gazetteer/
-├── cli.py       # click group + command definitions only
-├── walk.py      # the one bounded walker — every command routes through this
-├── filters.py   # shared --max-*/--ext/--pattern/--size options + matches_filters
-├── report.py    # human_size/human_duration, parsing, table + status-line rendering
-├── convert.py   # format detection + single-file conversion, used by preview/convert
-└── cache.py     # SQLite store + resolution ladder (phase 2, not yet built)
-tests/           # one test file per source module, plus CLI-level test files
+├── cli.py          # click group + the six tree-walking commands
+├── preview_cli.py  # the preview/convert commands (single-file, no walker)
+├── walk.py         # the one bounded walker — every tree command routes through this
+├── filters.py      # shared --max-*/--ext/--pattern/--size options + matches_filters
+├── report.py       # human_size/human_duration, parsing, table + status-line rendering
+├── convert.py      # format detection + single-file conversion, used by preview_cli.py
+└── cache.py        # SQLite store + resolution ladder (phase 2, not yet built)
+tests/              # one test file per source module, plus CLI-level test files
 ```
 
 - Commands never call `os.scandir` or hash files directly outside of

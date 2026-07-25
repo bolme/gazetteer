@@ -27,8 +27,6 @@ import xml.dom.minidom
 import xml.parsers.expat
 from dataclasses import dataclass
 
-_BINARY_FORMATS = {"docx", "pptx", "xlsx", "xls", "pdf"}
-
 # gaz convert is binary -> text only (see DESIGN.md). These formats are
 # already text, so pretty-printing them is preview's job; convert refuses
 # them rather than silently no-op'ing or inventing a translation feature.
