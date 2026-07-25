@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import os
 import statistics
 from collections import defaultdict
@@ -7,6 +8,7 @@ from collections import defaultdict
 import click
 
 from gazetteer import report, walk
+from gazetteer.walk import WalkEntry
 
 _LIMIT_OPTIONS = [
     click.option("--max-seconds", default=30.0, show_default=True, help="Wall-clock budget."),
@@ -15,11 +17,45 @@ _LIMIT_OPTIONS = [
     click.option("--max-depth", default=None, type=int, help="Depth to scope the walk to."),
 ]
 
+_FILTER_OPTIONS = [
+    click.option(
+        "--ext",
+        "extensions",
+        multiple=True,
+        help="Only include files with this extension (e.g. --ext .jpg). Repeatable.",
+    ),
+    click.option(
+        "--pattern",
+        "patterns",
+        multiple=True,
+        help="Only include files/dirs whose name matches this glob (e.g. --pattern '*.jpg'). Repeatable.",
+    ),
+]
+
 
 def limit_options(f):
     for option in reversed(_LIMIT_OPTIONS):
         f = option(f)
     return f
+
+
+def filter_options(f):
+    for option in reversed(_FILTER_OPTIONS):
+        f = option(f)
+    return f
+
+
+def matches_filters(entry: WalkEntry, extensions: tuple[str, ...], patterns: tuple[str, ...]) -> bool:
+    """True if entry passes the --ext / --pattern filters (both optional, AND'd together)."""
+    if extensions:
+        _, dot_ext = os.path.splitext(entry.name)
+        normalized = {e if e.startswith(".") else f".{e}" for e in extensions}
+        if dot_ext.lower() not in {e.lower() for e in normalized}:
+            return False
+    if patterns:
+        if not any(fnmatch.fnmatch(entry.name, p) for p in patterns):
+            return False
+    return True
 
 
 @click.group()
@@ -31,7 +67,16 @@ def main() -> None:
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
-def ext(path: str, max_seconds: float, max_entries: int, max_rows: int, max_depth: int | None) -> None:
+@filter_options
+def ext(
+    path: str,
+    max_seconds: float,
+    max_entries: int,
+    max_rows: int,
+    max_depth: int | None,
+    extensions: tuple[str, ...],
+    patterns: tuple[str, ...],
+) -> None:
     """File-extension breakdown: count, total size, median size."""
     result = walk.walk(
         path,
@@ -43,6 +88,8 @@ def ext(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dept
     sizes_by_ext: dict[str, list[int]] = defaultdict(list)
     for entry in result.entries:
         if entry.is_dir:
+            continue
+        if not matches_filters(entry, extensions, patterns):
             continue
         _, dot_ext = os.path.splitext(entry.name)
         sizes_by_ext[dot_ext.lower() or "(none)"].append(entry.size)
@@ -66,7 +113,16 @@ def ext(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dept
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
-def tree(path: str, max_seconds: float, max_entries: int, max_rows: int, max_depth: int | None) -> None:
+@filter_options
+def tree(
+    path: str,
+    max_seconds: float,
+    max_entries: int,
+    max_rows: int,
+    max_depth: int | None,
+    extensions: tuple[str, ...],
+    patterns: tuple[str, ...],
+) -> None:
     """Depth-limited structure with per-directory file counts and sizes."""
     result = walk.walk(
         path,
@@ -77,8 +133,11 @@ def tree(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dep
 
     stats: dict[str, list[int]] = defaultdict(list)
     for entry in result.entries:
-        if not entry.is_dir:
-            stats[entry.parent].append(entry.size)
+        if entry.is_dir:
+            continue
+        if not matches_filters(entry, extensions, patterns):
+            continue
+        stats[entry.parent].append(entry.size)
 
     rows = [(dir_path, len(sizes), sum(sizes)) for dir_path, sizes in stats.items()]
     rows.sort(key=lambda r: r[2], reverse=True)
@@ -89,10 +148,19 @@ def tree(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dep
     ]
     click.echo(report.render_table(truncated_rows, ("dir", "n_files", "total_size")))
     click.echo()
-    click.echo(
-        f"Total: {result.n_dirs:,} dirs, {result.n_files:,} files, "
-        f"{report.human_size(result.n_bytes)}"
-    )
+
+    matched_files = sum(len(sizes) for sizes in stats.values())
+    matched_bytes = sum(sum(sizes) for sizes in stats.values())
+    if extensions or patterns:
+        click.echo(
+            f"Total (matching filter): {result.n_dirs:,} dirs walked, "
+            f"{matched_files:,} files, {report.human_size(matched_bytes)}"
+        )
+    else:
+        click.echo(
+            f"Total: {result.n_dirs:,} dirs, {result.n_files:,} files, "
+            f"{report.human_size(result.n_bytes)}"
+        )
     click.echo(report.status_line(result, max_seconds=max_seconds))
 
 
@@ -100,10 +168,22 @@ def tree(path: str, max_seconds: float, max_entries: int, max_rows: int, max_dep
 @click.argument("pattern")
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
-def find(pattern: str, path: str, max_seconds: float, max_entries: int, max_rows: int, max_depth: int | None) -> None:
+@click.option(
+    "--ext",
+    "extensions",
+    multiple=True,
+    help="Only include files with this extension (e.g. --ext .jpg). Repeatable.",
+)
+def find(
+    pattern: str,
+    path: str,
+    max_seconds: float,
+    max_entries: int,
+    max_rows: int,
+    max_depth: int | None,
+    extensions: tuple[str, ...],
+) -> None:
     """Bounded search, filtering during the walk rather than after it."""
-    import fnmatch
-
     result = walk.walk(
         path,
         max_seconds=max_seconds,
@@ -111,7 +191,10 @@ def find(pattern: str, path: str, max_seconds: float, max_entries: int, max_rows
         max_depth=max_depth,
     )
 
-    matches = [e for e in result.entries if fnmatch.fnmatch(e.name, pattern)]
+    matches = [
+        e for e in result.entries
+        if fnmatch.fnmatch(e.name, pattern) and matches_filters(e, extensions, ())
+    ]
     truncated = matches[:max_rows]
 
     rows = [(m.path, "dir" if m.is_dir else "file", report.human_size(m.size)) for m in truncated]
