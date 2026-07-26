@@ -1,8 +1,20 @@
 """Bounded directory walker — the one core primitive every command uses.
 
 Every gaz command that touches the filesystem does so through this module.
-It enforces the three independent budgets (time, entries, rows are enforced
-by callers) and handles symlinks and permission errors uniformly.
+It enforces two independent budgets — time and entry count — and handles
+symlinks and permission errors uniformly. (--max-rows is a third budget,
+but it bounds *output*, not the walk itself, so it's enforced by callers
+slicing their result rows, not by walk().)
+
+Only max_seconds is on by default. max_entries defaults to 0 (unlimited):
+on fast local storage there's no reason to cut a scan short on entry count
+alone when there was plenty of time left, and the risk max_entries exists
+to guard against — a single pathological directory eating the whole time
+budget — is really a slow-storage problem, so it's opt-in rather than a
+hidden ceiling everyone pays for. Pass 0 for max_seconds too to remove the
+time budget entirely for a deliberate full-processing run; nothing about
+gaz requires a prior scan or makes an unbounded run unsafe, it's just not
+the default because most calls want a fast partial answer.
 
 Traversal is breadth-first by default: on a truncated walk, BFS discovers
 every top-level (and next-level, etc.) directory before going deep into
@@ -52,7 +64,7 @@ def walk(
     root: str,
     *,
     max_seconds: float = 30,
-    max_entries: int = 1_000_000,
+    max_entries: int = 0,
     max_depth: int | None = None,
     follow_symlinks: bool = False,
     cross_fs: bool = False,
@@ -63,7 +75,13 @@ def walk(
     """Walk `root` under explicit time/count/depth budgets.
 
     Uses os.scandir (not os.walk) so stat data comes free with the directory
-    read. Stops as soon as any budget is exhausted and reports why.
+    read. Stops as soon as any active budget is exhausted and reports why.
+
+    max_seconds=0 and max_entries=0 both mean "no limit" (see module
+    docstring for why max_entries defaults to unlimited while max_seconds
+    doesn't). max_depth=None means no depth limit; unlike the other two,
+    it's a scoping choice rather than a budget, so it has no "off" value
+    to speak of — it's already off by default.
 
     Breadth-first by default (see module docstring for why); pass
     depth_first=True for the old stack-based order. shuffle=True randomizes
@@ -75,6 +93,12 @@ def walk(
     start = time.monotonic()
     root = os.path.abspath(root)
     rng = random.Random(seed) if shuffle else None
+
+    def time_exceeded() -> bool:
+        return max_seconds > 0 and time.monotonic() - start >= max_seconds
+
+    def entries_exceeded() -> bool:
+        return max_entries > 0 and result.n_dirs + result.n_files >= max_entries
 
     try:
         root_dev = os.stat(root).st_dev
@@ -91,11 +115,11 @@ def walk(
     visited_dirs: set[tuple[int, int]] = set()  # (st_dev, st_ino) for symlink-loop guard
 
     while frontier:
-        if time.monotonic() - start >= max_seconds:
+        if time_exceeded():
             result.complete = False
             result.stop_reason = f"{max_seconds}s limit"
             break
-        if result.n_dirs + result.n_files >= max_entries:
+        if entries_exceeded():
             result.complete = False
             result.stop_reason = f"{max_entries} entries limit"
             break
@@ -126,11 +150,11 @@ def walk(
             rng.shuffle(scanned)
 
         for entry in scanned:
-            if time.monotonic() - start >= max_seconds:
+            if time_exceeded():
                 result.complete = False
                 result.stop_reason = f"{max_seconds}s limit"
                 break
-            if result.n_dirs + result.n_files >= max_entries:
+            if entries_exceeded():
                 result.complete = False
                 result.stop_reason = f"{max_entries} entries limit"
                 break

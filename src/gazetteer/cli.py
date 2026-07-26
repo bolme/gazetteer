@@ -74,7 +74,7 @@ def ext(
 
     truncated_rows = [
         (extension, count, report.human_size(total), report.human_size(median))
-        for extension, count, total, median in rows[:max_rows]
+        for extension, count, total, median in report.limit_rows(rows, max_rows)
     ]
     click.echo(report.render_table(truncated_rows, ("ext", "count", "total_size", "median_size")))
     click.echo()
@@ -131,7 +131,7 @@ def tree(
 
     truncated_rows = [
         (dir_path, n_files, report.human_size(total))
-        for dir_path, n_files, total in rows[:max_rows]
+        for dir_path, n_files, total in report.limit_rows(rows, max_rows)
     ]
     click.echo(report.render_table(truncated_rows, ("dir", "n_files", "total_size")))
     click.echo()
@@ -194,7 +194,7 @@ def find(
         e for e in result.entries
         if fnmatch.fnmatch(e.name, pattern) and matches_filters(e, extensions, (), size_filters)
     ]
-    truncated = matches[:max_rows]
+    truncated = report.limit_rows(matches, max_rows)
 
     rows = [(m.path, "dir" if m.is_dir else "file", report.human_size(m.size)) for m in truncated]
     click.echo(report.render_table(rows, ("path", "type", "size")))
@@ -254,7 +254,7 @@ def stale(
     ]
     stale_entries.sort(key=lambda e: e.mtime)
 
-    truncated = stale_entries[:max_rows]
+    truncated = report.limit_rows(stale_entries, max_rows)
     rows = [
         (e.path, report.human_duration(now - e.mtime), report.human_size(e.size))
         for e in truncated
@@ -340,7 +340,7 @@ def empty(
 
     empty_dirs = sorted(all_dirs - non_empty_dirs - unknown_dirs)
     unvisited_dirs = sorted((all_dirs - non_empty_dirs) & unknown_dirs)
-    truncated = empty_dirs[:max_rows]
+    truncated = report.limit_rows(empty_dirs, max_rows)
 
     rows = [(d,) for d in truncated]
     click.echo(report.render_table(rows, ("dir",)))
@@ -436,7 +436,7 @@ def dup(
     dup_groups.sort(key=lambda group: group[0].size * len(group), reverse=True)
 
     rows = []
-    for group in dup_groups[:max_rows]:
+    for group in report.limit_rows(dup_groups, max_rows):
         reclaimable = group[0].size * (len(group) - 1)
         rows.append((
             group[0].path,

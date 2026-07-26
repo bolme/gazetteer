@@ -69,13 +69,27 @@ budgets, just which end of the queue is read.
 
 ## Limits
 
-Three independent budgets, each with a flag. The walk stops when **any** is hit.
+Three independent budgets, each with a flag. `0` means unlimited for all three.
 
-- `--max-seconds` (default `30`) — wall-clock budget
-- `--max-entries` (default `1_000_000`) — filesystem entries visited
-- `--max-rows` (default `50`) — rows printed; aggregation continues past this
+- `--max-seconds` (default `30`) — wall-clock budget. On by default: this
+  is the one thing that guarantees a command returns.
+- `--max-entries` (default `0`, i.e. unlimited) — filesystem entries
+  visited. Opt-in, not on by default: on fast local storage there's no
+  reason to cut a scan short on entry count when there's still time left;
+  the risk this guards against (one pathological directory eating the
+  whole time budget) is really a slow-storage problem. Pass a positive
+  value to add it back.
+- `--max-rows` (default `50`) — rows printed; aggregation (the Total line)
+  continues past this regardless. Stays on by default — it's the guard
+  against flooding a terminal or an LLM's context window, a concern that
+  has nothing to do with how fast the walk itself was. Pass `0` for every
+  row.
 
 `--max-depth` is a scoping flag, not a budget — it changes what "complete" means.
+
+The status line names whichever budget actually stopped the walk (never a
+budget the caller left unlimited), so the re-run suggestion is always
+something that would actually help.
 
 ## Output contract
 

@@ -97,6 +97,18 @@ def human_duration(seconds: float) -> str:
     return f"{seconds / (365 * 86400):.1f}y"
 
 
+def limit_rows(rows: list, max_rows: int) -> list:
+    """Truncate `rows` to `max_rows`, or return every row when max_rows == 0.
+
+    Unlike --max-seconds/--max-entries, --max-rows stays on by default
+    (it's the guard against flooding a terminal or an LLM's context
+    window, which matters regardless of how fast the walk itself was) —
+    but it's still explicitly turn-off-able for someone who wants every
+    row printed, via --max-rows 0.
+    """
+    return rows if max_rows == 0 else rows[:max_rows]
+
+
 def render_table(rows: list[tuple], headers: tuple[str, ...]) -> str:
     """Render rows as plain aligned text (no rich markup)."""
     widths = [len(h) for h in headers]
@@ -142,13 +154,17 @@ def total_label(
     return f"{parts[0]} ({', '.join(parts[1:])})"
 
 
-def status_line(result: WalkResult, *, max_seconds: float, max_entries: int | None = None) -> str:
+def status_line(result: WalkResult, *, max_seconds: float, max_entries: int = 0) -> str:
     """Build the one-line completeness status required by every command.
 
     The re-run suggestion names whichever budget actually stopped the walk
     (read from result.stop_reason) rather than always pointing at
     --max-seconds — suggesting a bigger time budget does nothing if
-    --max-entries was the real constraint.
+    --max-entries was the real constraint. Since max_seconds=0 and
+    max_entries=0 both now mean "unlimited," the only way either limit
+    appears in stop_reason is if it was already a positive, active value
+    — so "suggest a bigger number" always makes sense here, never a
+    suggestion to raise an already-unlimited budget.
     """
     dirs = f"{result.n_dirs:,}"
     files = f"{result.n_files:,}"
@@ -157,15 +173,27 @@ def status_line(result: WalkResult, *, max_seconds: float, max_entries: int | No
         line = f"Scanned {dirs} dirs / {files} files in {result.elapsed:.1f}s. Complete."
     else:
         reason = result.stop_reason or ""
-        if "entries limit" in reason and max_entries is not None:
+        # "entries" is checked as its own category first since "entries
+        # limit" also contains the substring "s limit" ("entrie-s limit").
+        is_entries_stop = "entries" in reason
+        is_time_stop = not is_entries_stop and "s limit" in reason
+
+        if is_entries_stop and max_entries > 0:
             suggestion = f"--max-entries {max_entries * 10}"
-        else:
+        elif is_time_stop and max_seconds > 0:
             suggestion = f"--max-seconds {int(max_seconds * 10)}"
-        line = (
-            f"Stopped at the {result.stop_reason} after {dirs} dirs / {files} files. "
-            f"Numbers below are a lower bound. "
-            f"Re-run with {suggestion} for a fuller picture."
-        )
+        else:
+            # Either not a budget at all (e.g. "cannot stat root: ..."),
+            # or the caller's max_entries/max_seconds doesn't match what
+            # the walk actually used (e.g. 0/unlimited) -- no bigger
+            # number to suggest, so say nothing rather than something
+            # wrong like "--max-entries 0" (which means *unlimited*, the
+            # opposite of "bigger").
+            suggestion = None
+        line = f"Stopped at the {result.stop_reason} after {dirs} dirs / {files} files. "
+        line += "Numbers below are a lower bound."
+        if suggestion:
+            line += f" Re-run with {suggestion} for a fuller picture."
 
     if result.n_errors:
         line += f" ({result.n_errors:,} unreadable paths skipped.)"

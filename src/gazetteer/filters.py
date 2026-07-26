@@ -16,9 +16,29 @@ from gazetteer import report
 from gazetteer.walk import WalkEntry
 
 _LIMIT_OPTIONS = [
-    click.option("--max-seconds", default=30.0, show_default=True, help="Wall-clock budget."),
-    click.option("--max-entries", default=1_000_000, show_default=True, help="Filesystem entries visited."),
-    click.option("--max-rows", default=50, show_default=True, help="Rows printed."),
+    click.option(
+        "--max-seconds",
+        default=30.0,
+        show_default=True,
+        help="Wall-clock budget. 0 means unlimited (run until done).",
+    ),
+    click.option(
+        "--max-entries",
+        default=0,
+        show_default=True,
+        help=(
+            "Filesystem entries visited. 0 (default) means unlimited — this "
+            "budget is opt-in, since --max-seconds alone already protects "
+            "against a run that never returns. Most useful on slow storage, "
+            "where a single huge directory could burn the whole time budget."
+        ),
+    ),
+    click.option(
+        "--max-rows",
+        default=50,
+        show_default=True,
+        help="Rows printed; aggregation continues past this. 0 means show every row.",
+    ),
     click.option("--max-depth", default=None, type=int, help="Depth to scope the walk to."),
 ]
 

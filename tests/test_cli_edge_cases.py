@@ -39,7 +39,7 @@ def test_all_commands_handle_completely_empty_tree(tmp_path):
         assert "Complete." in result.output or "Scanned" in result.output
 
 
-def test_ext_max_rows_zero_hides_rows_but_keeps_status_accurate(tmp_path):
+def test_ext_max_rows_zero_shows_every_row(tmp_path):
     for i in range(5):
         (tmp_path / f"f{i}.txt").write_text("x")
 
@@ -47,7 +47,7 @@ def test_ext_max_rows_zero_hides_rows_but_keeps_status_accurate(tmp_path):
     result = runner.invoke(main, ["ext", str(tmp_path), "--max-rows", "0"])
 
     assert result.exit_code == 0
-    assert ".txt" not in result.output.split("\n\n")[0]  # no data row printed
+    assert ".txt" in result.output.split("\n\n")[0]  # data row printed
     assert "5 files" in result.output
 
 
@@ -174,14 +174,40 @@ def test_find_pattern_matches_directories_too(tmp_path):
     assert "other_dir" not in result.output
 
 
-def test_max_entries_zero_still_produces_valid_output(tmp_path):
+def test_max_entries_zero_means_unlimited_and_completes(tmp_path):
     (tmp_path / "f.txt").write_text("x")
 
     runner = CliRunner()
     result = runner.invoke(main, ["ext", str(tmp_path), "--max-entries", "0"])
 
     assert result.exit_code == 0
-    assert "lower bound" in result.output
+    assert "Complete." in result.output
+    assert "lower bound" not in result.output
+
+
+def test_max_entries_defaults_to_unlimited(tmp_path):
+    for i in range(20):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["ext", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Complete." in result.output
+    assert "20 files" in result.output
+
+
+def test_stale_max_rows_zero_shows_every_row(tmp_path):
+    for i in range(3):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["stale", str(tmp_path), "--older-than", "0s", "--max-rows", "0"]
+    )
+
+    assert result.exit_code == 0
+    assert result.output.count("f") >= 3  # all three files listed
 
 
 # --- Total-line truncation qualification -----------------------------

@@ -101,11 +101,21 @@ def test_walk_stops_at_max_seconds(tmp_path):
         d.mkdir()
         (d / "f.txt").write_text("x")
 
-    result = walk.walk(str(tmp_path), max_seconds=0)
+    result = walk.walk(str(tmp_path), max_seconds=0.0000001)
 
     assert not result.complete
     assert "limit" in result.stop_reason
     assert result.elapsed >= 0
+
+
+def test_walk_max_seconds_zero_means_unlimited(tmp_path):
+    for i in range(50):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+    result = walk.walk(str(tmp_path), max_seconds=0)
+
+    assert result.complete
+    assert result.n_files == 50
 
 
 def test_walk_does_not_descend_into_symlinked_dir_by_default(tmp_path):
@@ -177,10 +187,32 @@ def test_walk_empty_directory(tmp_path):
     assert result.entries == []
 
 
-def test_walk_max_entries_zero_stops_immediately(tmp_path):
-    (tmp_path / "f.txt").write_text("x")
+def test_walk_max_entries_zero_means_unlimited(tmp_path):
+    for i in range(50):
+        (tmp_path / f"f{i}.txt").write_text("x")
 
     result = walk.walk(str(tmp_path), max_entries=0)
+
+    assert result.complete
+    assert result.n_files == 50
+
+
+def test_walk_max_entries_default_is_unlimited(tmp_path):
+    # max_entries is opt-in now -- only max_seconds is on by default.
+    for i in range(50):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+    result = walk.walk(str(tmp_path))
+
+    assert result.complete
+    assert result.n_files == 50
+
+
+def test_walk_max_entries_one_stops_almost_immediately(tmp_path):
+    (tmp_path / "f.txt").write_text("x")
+    (tmp_path / "g.txt").write_text("x")
+
+    result = walk.walk(str(tmp_path), max_entries=1)
 
     assert not result.complete
     assert "entries limit" in result.stop_reason

@@ -35,88 +35,36 @@ easy to under-value against feature requests like "add --json":
 
 ## Suggested order of work
 
-1. Revisit how the three limits work (time-only default, others optional) — Improvement, P1, M
-2. gaz find's positional PATTERN vs --pattern discoverability trap — Improvement, P1, S
-3. Flag suspicious/epoch-like mtimes in gaz stale — Improvement, P1, S
-4. Default --max-entries is too low for an ordinary large tree — Improvement, P1, S/M (superseded by #1 if that lands first)
-5. No --exclude / path-ignore flag — Feature, P1, M
-6. gaz dup: separate real duplicates from vendored/package-manager noise — Feature, P2, M (built on #5)
-7. gaz tree: recursive/rollup size mode — Feature, P2, M
-8. Bounded machine-readable output format — Feature, P2, L
-9. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S (built on #8)
-10. Add a SKILL / agent-guidance doc — Feature, P1, S (docs-only, no code risk)
-11. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
+1. gaz find's positional PATTERN vs --pattern discoverability trap — Improvement, P1, S
+2. Flag suspicious/epoch-like mtimes in gaz stale — Improvement, P1, S
+3. No --exclude / path-ignore flag — Feature, P1, M
+4. gaz dup: separate real duplicates from vendored/package-manager noise — Feature, P2, M (built on #3)
+5. gaz tree: recursive/rollup size mode — Feature, P2, M
+6. Bounded machine-readable output format — Feature, P2, L
+7. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S (built on #6)
+8. Add a SKILL / agent-guidance doc — Feature, P1, S (docs-only, no code risk)
+9. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
 
-Rationale for the order: #1 (revisiting the limits model) comes first
-because it's a foundational change to what "bounded" means for every
-other command and item on this list — in particular it makes #4 (is 1M
-the right --max-entries default?) largely moot, since the plan is for
-that limit to become optional rather than tune its default. Doing #1
-before #4 avoids re-litigating a default that might not exist afterward.
-The rest of the P1 usability/default items follow because they're each
-small and independently shippable, and the SKILL doc is pulled forward
-to P1 despite being a "feature idea" because it's pure documentation (no
-code risk) and immediately raises the value of everything already
-shipped. `--exclude` (#5) is ranked ahead of the two items that most
-benefit from it (#6, #7 lean on being able to skip noisy subtrees) even
-though it's a bigger change, because doing it first avoids building
-`dup`'s vendored-directory heuristic and then reconciling it with a
-general exclude mechanism later. The output-format and MCP items are
-pushed to the end because they're the largest, most design-heavy
-changes, and the MCP surface specifically should mirror whatever flags
-exist by then rather than be designed twice.
+Rationale for the order: the remaining P1 usability/default items come
+first because they're each small and independently shippable, and the
+SKILL doc is pulled forward to P1 despite being a "feature idea" because
+it's pure documentation (no code risk) and immediately raises the value
+of everything already shipped. `--exclude` (#3) is ranked ahead of the
+two items that most benefit from it (#4, #5 lean on being able to skip
+noisy subtrees) even though it's a bigger change, because doing it first
+avoids building `dup`'s vendored-directory heuristic and then
+reconciling it with a general exclude mechanism later. The output-format
+and MCP items are pushed to the end because they're the largest, most
+design-heavy changes, and the MCP surface specifically should mirror
+whatever flags exist by then rather than be designed twice.
 
-Two items that were previously on this list have been fixed and
+Three items that were previously on this list have been fixed and
 verified — see the "Recently resolved" section at the bottom for what
 changed and how it was tested.
 
 ## Items, in suggested order
 
-### 1. Revisit how the three limits work: time-only by default, others optional
-**Improvement · Priority P1 · Difficulty M**
-
-Today all three budgets (`--max-seconds`, `--max-entries`, `--max-rows`)
-apply by default, and the walk stops when **any** is hit — which means
-on fast local storage, a scan can stop early on entry count alone even
-though there was plenty of time left to keep going. The better default:
-**only the time budget (`--max-seconds`) is on by default.** Let a scan
-collect as much as it can within the time limit rather than cutting
-itself off on an arbitrary entry count that has nothing to do with
-whether the storage can keep up. `--max-entries` becomes opt-in — most
-useful on slow storage (spinning disks, network mounts) where an
-attacker isn't the concern but a single pathological directory (a cache
-with millions of tiny files) chewing through the whole time budget is.
-**`--max-rows`, unlike the other two, should stay on by default** and
-not be folded into this change — it isn't a walk budget, it's the
-output-size guard that protects the terminal/LLM context window, which
-matters regardless of how fast or slow the underlying storage is; a
-fast local disk can still enumerate more files than anyone wants printed
-or fed into a context window.
-
-Every limit needs an explicit "unbounded" escape hatch for full
-processing when that's genuinely what's wanted (e.g. `--max-seconds 0`
-or `--no-max-seconds` meaning "run until done," similarly for
-`--max-entries`) — someone who wants the complete picture and is willing
-to wait should be able to ask for it plainly, without gaz still
-second-guessing them with a hidden ceiling. `--max-rows` should get the
-same treatable-as-optional mechanism, but its default should stay *on*
-rather than flip to unbounded, since an accidentally-unbounded row count
-is exactly the flooding problem gaz exists to prevent — this is the one
-limit where "make it optional" should not quietly imply "make it
-unbounded by default" the way it does for the walk-time budgets.
-
-Medium effort: this is a real semantics change to `walk.py`'s stopping
-conditions (which limits are active at all, not just their values) and
-to `report.status_line`/`total_label`'s truncation messaging (needs to
-correctly describe "ran out of time" vs. "hit an entry cap you
-explicitly opted into" vs. "output was capped, though the walk itself
-finished") — three genuinely different situations that read differently
-today because they're conflated under one "stopped early" model. Should
-land before or alongside #4 (the `--max-entries` default-value question)
-since it changes the question from "what should the default number be"
-to "should this default to being on at all."
-
-### 2. gaz find's positional PATTERN vs --pattern is a discoverability trap
+### 1. gaz find's positional PATTERN vs --pattern is a discoverability trap
 **Improvement · Priority P1 · Difficulty S**
 
 `find` intentionally takes `PATTERN` as a positional argument (by
@@ -132,7 +80,7 @@ positional form, or reconsider whether `find` should accept `--pattern`
 as an alias for the positional argument for consistency. Either fix is
 a small, localized change to one command.
 
-### 3. Investigate flagging suspicious/epoch-like mtimes in gaz stale
+### 2. Investigate flagging suspicious/epoch-like mtimes in gaz stale
 **Improvement · Priority P1 · Difficulty S**
 
 `gaz stale` correctly reports whatever `st_mtime` the OS gives it — that
@@ -149,21 +97,7 @@ timestamp, not a real file age)" rather than reporting them at face
 value. A small, additive check in the `stale` command's row-rendering;
 no walker or schema change.
 
-### 4. Default --max-entries (1,000,000) is too low for an ordinary large tree
-**Improvement · Priority P1 · Difficulty S/M**
-
-A single real home directory hit the 1M-entry default almost
-immediately (~947K files across ~53K dirs is most of the budget before
-any filtering). Every command reports its numbers as "at least" in this
-case, which is *correct*, but if the default is this easy to exhaust on
-an unremarkable modern filesystem, it stops being "a generous default"
-and becomes "the thing you always have to override." Worth reconsidering
-the default upward, or documenting more prominently that large trees
-should expect to pass `--max-entries` explicitly. Changing the constant
-is trivial (S); the real work is M — gathering timing data across a few
-real trees so the new default is chosen deliberately, not guessed.
-
-### 5. No --exclude / path-ignore flag on any command
+### 3. No --exclude / path-ignore flag on any command
 **Feature · Priority P1 · Difficulty M**
 
 Every walk-based command scans everything under `--max-depth`, with no
@@ -182,7 +116,7 @@ just filtering them from output afterward) plus a new shared CLI option
 threaded through all six commands, similar in shape to the existing
 `filters.py` options.
 
-### 6. gaz dup needs a way to separate "your duplicates" from "vendored/package-manager duplicates"
+### 4. gaz dup needs a way to separate "your duplicates" from "vendored/package-manager duplicates"
 **Feature · Priority P2 · Difficulty M**
 
 The largest duplicate sets found in a real run were near-entirely inside
@@ -191,15 +125,15 @@ fonts, source maps as a byproduct of how the packages ship) — reclaiming
 that space would mean breaking the installed environment, not cleaning
 up anything. `gaz dup` has no way today to deprioritize or exclude
 duplicates that live inside dependency-manager directories
-(`site-packages`, `node_modules`, `.venv`, conda envs, etc.). Once #5
+(`site-packages`, `node_modules`, `.venv`, conda envs, etc.). Once #3
 (`--exclude`) exists, a user can already work around this manually;
 this item is the built-in heuristic on top (recognize common
 package-manager directory names by default, or a `--skip-vendored`
 flag) since "noise from vendored dependencies" is dup's single biggest
 source of low-value results and shouldn't require every user to
-rediscover the same exclude list. Depends on #5 landing first.
+rediscover the same exclude list. Depends on #3 landing first.
 
-### 7. gaz tree has no recursive/rollup size mode
+### 5. gaz tree has no recursive/rollup size mode
 **Feature · Priority P2 · Difficulty M**
 
 `gaz tree` reports each directory's *direct* children only — it doesn't
@@ -215,7 +149,7 @@ Medium effort: the raw per-file data is already collected, but rolling
 it up per-ancestor-directory needs a real aggregation pass and a
 decision about how deep results should nest in the table output.
 
-### 8. No machine-readable output format
+### 6. No machine-readable output format
 **Feature · Priority P2 · Difficulty L**
 
 All output today is the plain aligned text table + status line. That's
@@ -232,7 +166,7 @@ consistent shape across six different commands' row types plus the
 completeness metadata) before any code — this is the kind of change
 that should get its own design doc section, not just a flag.
 
-### 9. No dry-run / preview-before-acting workflow for gaz dup
+### 7. No dry-run / preview-before-acting workflow for gaz dup
 **Feature · Priority P3 · Difficulty S**
 
 `gaz dup` (and any future command that suggests deletions) has no way to
@@ -241,12 +175,12 @@ outside the tool — today that means manually copying paths out of the
 table. This is lower priority than the items above since gaz doesn't
 delete anything itself (it only reports), but worth considering a
 `--script` or `--emit-paths` style output tailored to feeding into a
-review step or a deletion command. Small once #8 (structured output)
+review step or a deletion command. Small once #6 (structured output)
 exists to build it on — mostly a thin rendering of data gaz already
 computes — but blocked until then, since duplicating a one-off output
 format now would just be replaced later.
 
-### 10. Add a SKILL (or equivalent agent-guidance doc) for using gaz effectively
+### 8. Add a SKILL (or equivalent agent-guidance doc) for using gaz effectively
 **Feature · Priority P1 · Difficulty S**
 
 Right now an agent discovering gaz has to infer good practice from
@@ -261,16 +195,16 @@ aren't obvious from flags in isolation:
   whichever budget flag actually applies).
 - On slow storage (network mounts, spinning disks, anything where a bare
   `find .` has been known to hang), prefer smaller `--max-seconds` and
-  iterate rather than requesting a huge budget up front — and once item
-  1 lands, know which limits are even active by default (time only)
-  versus opt-in (`--max-entries`).
+  iterate rather than requesting a huge budget up front — and know which
+  limits are even active by default (only `--max-seconds`; `--max-entries`
+  is opt-in, `--max-rows` stays on but supports `0` for every row).
 - Use `--shuffle`/`--seed` when a truncated sample needs to be
   representative rather than always the same alphabetically-first
   slice, and `--depth-first` only when deliberately confirming one known
   subtree rather than surveying broadly.
 - When results should feed into another step (a script, a second agent
   call), prefer the bounded structured-output mode (once it exists, see
-  item 8) over scraping the text table.
+  item 6) over scraping the text table.
 
 Ranked P1 despite being a "feature idea" because it's pure documentation
 with no code risk, and it immediately raises the value of every command
@@ -278,7 +212,7 @@ gaz already ships — the highest value-to-effort item on this whole list.
 This should live as a real skill file once the project's skill-authoring
 convention is decided — for now, tracked here so the need isn't lost.
 
-### 11. Add an MCP server interface
+### 9. Add an MCP server interface
 **Feature · Priority P3 · Difficulty L**
 
 DESIGN.md's Phase 4 already calls this out: expose the same commands as
@@ -290,13 +224,33 @@ gaz as a tool gets the same "safe, bounded" guarantee that makes it
 useful over a raw `find`/`du` shellout that might hang for the ten
 minutes an agent doesn't have. Deliberately last: it's a large effort in
 its own right (tool schema, server lifecycle, packaging), and it should
-wait until the CLI surface (especially #1 the limits-model change, #5
---exclude, and #8 structured output) is more settled, since the MCP
-tool schema will want to mirror stable flags rather than be redesigned
-twice.
+wait until the CLI surface (especially #3 --exclude and #6 structured
+output) is more settled, since the MCP tool schema will want to mirror
+stable flags rather than be redesigned twice.
 
 ## Recently resolved
 
+- **Limits model: only --max-seconds on by default, --max-entries opt-in,
+  --max-rows still on but escapable.** All three budgets used to apply
+  simultaneously (stop on whichever was hit first), so a scan on fast
+  local storage could stop early on entry count alone even with plenty of
+  time left. Now `--max-entries` defaults to `0` (unlimited) and is
+  purely opt-in; `--max-seconds` stays on by default (default `30`);
+  `--max-rows` stays on by default (default `50`, protecting the
+  terminal/context window regardless of walk speed) but now honors `0`
+  meaning "every row." `0` is the unlimited sentinel for all three.
+  `walk.py` gained `time_exceeded()`/`entries_exceeded()` helper closures
+  so the four inline budget checks read the same way; `report.status_line`
+  now computes mutually-exclusive `is_entries_stop`/`is_time_stop` flags
+  (avoiding a substring collision — `"entries limit"` contains `"s
+  limit"`) and only suggests raising a budget the caller actually had
+  active, never a nonsensical "--max-entries 0" or "--max-seconds 0."
+  `report.limit_rows()` centralizes the `0`-means-unlimited row
+  truncation used by all six commands. Tested in `tests/test_walk.py`,
+  `tests/test_report.py`, and `tests/test_cli_edge_cases.py` (default
+  behavior, explicit opt-in, and both `0`-means-unlimited cases); manually
+  verified against a real tree that a default run no longer stops on
+  entry count and `--max-rows 0` prints every row.
 - **Re-run suggestion named the wrong flag.** `report.status_line` now
   reads `result.stop_reason` and suggests `--max-entries` when that was
   the actual limit hit, `--max-seconds` otherwise, instead of always

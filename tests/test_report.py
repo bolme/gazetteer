@@ -261,13 +261,30 @@ def test_status_line_entries_limit_suggests_max_entries_not_max_seconds():
     assert "--max-seconds" not in line
 
 
-def test_status_line_entries_limit_without_max_entries_arg_falls_back_to_max_seconds():
-    # Callers that don't pass max_entries (or pass None) still get a
-    # suggestion rather than a crash — just the less-precise one.
+def test_status_line_entries_limit_without_max_entries_arg_omits_broken_suggestion():
+    # max_entries defaults to 0 (unlimited). If the caller's stop_reason
+    # says "entries limit" but they didn't pass a matching max_entries,
+    # "--max-entries 0" would be actively wrong (0 means unlimited, the
+    # opposite of "bigger") -- so no suggestion is better than a wrong one,
+    # and --max-seconds (which wasn't the actual limit) isn't suggested
+    # either.
     result = _walk_result(n_dirs=1, n_files=2, complete=False, stop_reason="1000000 entries limit")
     line = status_line(result, max_seconds=30)
 
-    assert "--max-seconds" in line
+    assert "--max-entries 0" not in line
+    assert "--max-seconds" not in line
+    assert "lower bound" in line
+
+
+def test_status_line_max_seconds_zero_omits_broken_suggestion():
+    # Mirror case: stop_reason says a time limit was hit, but the caller
+    # passed max_seconds=0 (unlimited) -- can't have actually been what
+    # stopped the walk, so don't suggest raising it.
+    result = _walk_result(n_dirs=1, n_files=2, complete=False, stop_reason="30.0s limit")
+    line = status_line(result, max_seconds=0)
+
+    assert "--max-seconds 0" not in line
+    assert "lower bound" in line
 
 
 def test_status_line_reports_error_count_when_present():
