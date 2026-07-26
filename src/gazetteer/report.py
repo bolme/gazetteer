@@ -142,18 +142,29 @@ def total_label(
     return f"{parts[0]} ({', '.join(parts[1:])})"
 
 
-def status_line(result: WalkResult, *, max_seconds: float) -> str:
-    """Build the one-line completeness status required by every command."""
+def status_line(result: WalkResult, *, max_seconds: float, max_entries: int | None = None) -> str:
+    """Build the one-line completeness status required by every command.
+
+    The re-run suggestion names whichever budget actually stopped the walk
+    (read from result.stop_reason) rather than always pointing at
+    --max-seconds — suggesting a bigger time budget does nothing if
+    --max-entries was the real constraint.
+    """
     dirs = f"{result.n_dirs:,}"
     files = f"{result.n_files:,}"
 
     if result.complete:
         line = f"Scanned {dirs} dirs / {files} files in {result.elapsed:.1f}s. Complete."
     else:
+        reason = result.stop_reason or ""
+        if "entries limit" in reason and max_entries is not None:
+            suggestion = f"--max-entries {max_entries * 10}"
+        else:
+            suggestion = f"--max-seconds {int(max_seconds * 10)}"
         line = (
             f"Stopped at the {result.stop_reason} after {dirs} dirs / {files} files. "
             f"Numbers below are a lower bound. "
-            f"Re-run with --max-seconds {int(max_seconds * 10)} for a fuller picture."
+            f"Re-run with {suggestion} for a fuller picture."
         )
 
     if result.n_errors:

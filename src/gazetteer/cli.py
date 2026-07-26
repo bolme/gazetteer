@@ -86,7 +86,7 @@ def ext(
         f"{report.total_label(result, filtered=is_filtered)}: "
         f"{matched_files:,} files, {report.human_size(matched_bytes)}"
     )
-    click.echo(report.status_line(result, max_seconds=max_seconds))
+    click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
 @main.command()
@@ -145,7 +145,7 @@ def tree(
         f"{result.n_dirs:,} {dirs_label}, {matched_files:,} files, "
         f"{report.human_size(matched_bytes)}"
     )
-    click.echo(report.status_line(result, max_seconds=max_seconds))
+    click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
 @main.command()
@@ -199,7 +199,7 @@ def find(
     rows = [(m.path, "dir" if m.is_dir else "file", report.human_size(m.size)) for m in truncated]
     click.echo(report.render_table(rows, ("path", "type", "size")))
     click.echo()
-    click.echo(report.status_line(result, max_seconds=max_seconds))
+    click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
 @main.command()
@@ -269,7 +269,7 @@ def stale(
         f"{len(stale_entries):,} files older than {older_than}, "
         f"{report.human_size(total_bytes)}"
     )
-    click.echo(report.status_line(result, max_seconds=max_seconds))
+    click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
 @main.command()
@@ -286,7 +286,14 @@ def empty(
     shuffle: bool,
     seed: int | None,
 ) -> None:
-    """Directories containing no files anywhere in their subtree."""
+    """Directories containing no files anywhere in their subtree.
+
+    A directory is only reported as empty if its entire subtree was
+    actually scanned — one merely *discovered* (an entry of a scanned
+    parent) but not itself explored before the walk stopped is reported
+    separately as "unvisited," never mislabeled empty. See TODO.md's
+    now-resolved item on gaz empty's truncation caveat.
+    """
     result = walk.walk(
         path,
         max_seconds=max_seconds,
@@ -315,20 +322,47 @@ def empty(
                 break
             current = parent_of.get(current)
 
-    empty_dirs = sorted(all_dirs - non_empty_dirs)
+    # A dir's subtree is only fully known if the dir itself was scanned AND
+    # every subdirectory it contains is also fully known (recursively) —
+    # an unscanned child could be hiding a file that would make this
+    # directory non-empty (whether it's unscanned because the walk's
+    # budget ran out, or because --max-depth deliberately excluded it).
+    # Propagate "unknown" up from any discovered-but-unscanned directory,
+    # the same way non-emptiness propagates from files.
+    unknown_dirs = {d for d in all_dirs if d not in result.scanned_dirs}
+    for d in list(unknown_dirs):
+        current = parent_of.get(d)
+        while current and current not in unknown_dirs:
+            unknown_dirs.add(current)
+            if current == root:
+                break
+            current = parent_of.get(current)
+
+    empty_dirs = sorted(all_dirs - non_empty_dirs - unknown_dirs)
+    unvisited_dirs = sorted((all_dirs - non_empty_dirs) & unknown_dirs)
     truncated = empty_dirs[:max_rows]
 
     rows = [(d,) for d in truncated]
     click.echo(report.render_table(rows, ("dir",)))
     click.echo()
     click.echo(f"{report.total_label(result)}: {len(empty_dirs):,} empty directories")
-    if not result.complete:
-        click.echo(
-            "Warning: the walk stopped early, so some directories listed as empty "
-            "may simply be unvisited rather than truly empty, and there may be "
-            "more empty directories beyond what was walked."
-        )
-    click.echo(report.status_line(result, max_seconds=max_seconds))
+    if unvisited_dirs:
+        if result.complete:
+            # The walk itself finished; any unvisited dirs here are purely
+            # a consequence of --max-depth deliberately not looking deeper.
+            click.echo(
+                f"Additionally, {len(unvisited_dirs):,} directories could not be "
+                f"confirmed empty or non-empty because --max-depth={max_depth} "
+                f"kept their subtree out of scope."
+            )
+        else:
+            click.echo(
+                f"Additionally, {len(unvisited_dirs):,} directories could not be "
+                f"confirmed empty or non-empty because the walk stopped before "
+                f"their full subtree was scanned — not counted above, and not "
+                f"shown as a false positive."
+            )
+    click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
 @main.command()
@@ -439,7 +473,7 @@ def dup(
             f"Duplicate sets below are a lower bound. Re-run with --max-hash-seconds "
             f"{suggested} for a fuller picture."
         )
-    click.echo(report.status_line(result, max_seconds=max_seconds))
+    click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
 def _hash_file(path: str, chunk_size: int = 1024 * 1024) -> str | None:

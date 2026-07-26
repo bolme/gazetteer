@@ -306,3 +306,50 @@ def test_walk_depth_first_and_shuffle_compose(tmp_path):
     result = walk.walk(str(tmp_path), depth_first=True, shuffle=True, seed=1, max_seconds=5)
 
     assert result.complete
+
+
+def test_walk_scanned_dirs_includes_every_dir_on_a_complete_walk(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "b").mkdir()
+
+    result = walk.walk(str(tmp_path))
+
+    root = os.path.abspath(str(tmp_path))
+    a = os.path.join(root, "a")
+    b = os.path.join(root, "a", "b")
+    assert result.scanned_dirs == {root, a, b}
+
+
+def test_walk_scanned_dirs_excludes_dir_whose_own_scan_was_cut_short(tmp_path):
+    # root is scanned enough to discover "a", but the budget runs out
+    # before root's own entry-processing loop finishes, so root itself
+    # should NOT count as fully scanned.
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "c").mkdir()
+
+    result = walk.walk(str(tmp_path), max_entries=1)
+
+    assert result.scanned_dirs == set()
+
+
+def test_walk_scanned_dirs_excludes_discovered_but_unexplored_child(tmp_path):
+    (tmp_path / "parent" / "child").mkdir(parents=True)
+
+    result = walk.walk(str(tmp_path), max_entries=2)
+
+    root = os.path.abspath(str(tmp_path))
+    parent = os.path.join(root, "parent")
+    child = os.path.join(root, "parent", "child")
+    # root's own scan completed (it only had one entry: "parent"), but
+    # "parent" was merely discovered, never itself scanned.
+    assert root in result.scanned_dirs
+    assert parent not in result.scanned_dirs
+    assert child not in result.scanned_dirs
+
+
+def test_walk_scanned_dirs_empty_directory_still_counts_as_scanned(tmp_path):
+    result = walk.walk(str(tmp_path))
+
+    root = os.path.abspath(str(tmp_path))
+    assert result.scanned_dirs == {root}

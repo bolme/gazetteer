@@ -251,6 +251,25 @@ def test_status_line_truncated_run_mentions_lower_bound_and_reason():
     assert "--max-seconds" in line
 
 
+def test_status_line_entries_limit_suggests_max_entries_not_max_seconds():
+    result = _walk_result(n_dirs=1, n_files=2, complete=False, stop_reason="1000000 entries limit")
+    line = status_line(result, max_seconds=30, max_entries=1_000_000)
+
+    assert "lower bound" in line
+    assert "1000000 entries limit" in line
+    assert "--max-entries 10000000" in line
+    assert "--max-seconds" not in line
+
+
+def test_status_line_entries_limit_without_max_entries_arg_falls_back_to_max_seconds():
+    # Callers that don't pass max_entries (or pass None) still get a
+    # suggestion rather than a crash — just the less-precise one.
+    result = _walk_result(n_dirs=1, n_files=2, complete=False, stop_reason="1000000 entries limit")
+    line = status_line(result, max_seconds=30)
+
+    assert "--max-seconds" in line
+
+
 def test_status_line_reports_error_count_when_present():
     result = _walk_result(n_dirs=1, n_files=1, complete=True, n_errors=3)
     line = status_line(result, max_seconds=30)

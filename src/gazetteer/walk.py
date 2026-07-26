@@ -41,6 +41,11 @@ class WalkResult:
     elapsed: float = 0.0
     complete: bool = True
     stop_reason: str | None = None
+    # Paths that were actually os.scandir'd — as opposed to paths merely
+    # *discovered* as an entry of a scanned parent but never explored
+    # themselves. On a truncated walk, a directory can only be confidently
+    # called "empty" if it's in here; otherwise it's unvisited, not empty.
+    scanned_dirs: set[str] = field(default_factory=set)
 
 
 def walk(
@@ -181,6 +186,11 @@ def walk(
                 )
                 result.n_files += 1
                 result.n_bytes += stat_result.st_size
+        else:
+            # Only reached if the for-loop above ran to completion without
+            # `break`ing on a budget check — i.e. every entry in this
+            # directory was actually processed, not just some of them.
+            result.scanned_dirs.add(dir_path)
 
     result.elapsed = time.monotonic() - start
     return result
