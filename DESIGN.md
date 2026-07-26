@@ -36,11 +36,36 @@ never arrives. This is the whole product. Do not add a feature that can run unbo
 |---|---|---|
 | Walker | One shared bounded walker in `walk.py`, used by every command | Single place where limits, symlinks, and permission errors are handled correctly |
 | Directory iteration | `os.scandir`, not `os.walk` | `scandir` returns `stat` data from the directory read, avoiding a syscall per file |
+| Traversal order | Breadth-first by default | A truncated walk should show the tree's overall shape, not exhaustively cover the first branch and miss every sibling. See "Traversal order" below. |
 | Symlinks | Not followed by default | Loops are common in dataset trees and will hang the walk |
 | Filesystems | Do not cross by default | Keeps network mounts from silently joining a local scan |
 | Permission errors | Skip, count, report total at the end | One unreadable directory should not kill a 4-hour scan |
 | Output | Plain aligned text by default, `--json` for machines | Plain text is compact in LLM context; `rich` markup is not |
 | Exit code | Always `0` on a successful run, including partial ones | Partial is a normal outcome, not an error. Status goes in the output. |
+
+## Traversal order
+
+`walk()` is breadth-first by default: it discovers every directory at depth
+N before descending to depth N+1. On a truncated walk this means the
+partial result still shows the tree's overall shape — every top-level
+directory (and the next level, and so on) rather than complete, deep
+coverage of whichever directory scandir happened to return first and zero
+visibility into its siblings. For a command whose entire purpose is "tell
+me what this tree looks like," a lopsided sample is actively misleading.
+
+- **`--depth-first`** switches to the old stack-based order: complete
+  coverage of the first branches, at the cost of breadth. Occasionally
+  useful — e.g. confirming one specific subtree's full structure fast.
+- **`--shuffle`** (optionally with **`--seed`** for reproducibility)
+  randomizes sibling order at each directory before it's queued, so a
+  truncated walk samples a different slice of a wide directory on each
+  run instead of always the same alphabetically-first N entries. Cheap:
+  each directory's own entries are shuffled in place, not the whole walk.
+  Composes with `--depth-first`.
+
+Implemented with a `collections.deque`: breadth-first pops from the left
+(FIFO), depth-first pops from the right (LIFO) — same walker, same
+budgets, just which end of the queue is read.
 
 ## Limits
 

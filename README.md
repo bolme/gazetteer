@@ -56,8 +56,9 @@ into `site-packages` directly:
 ## Commands
 
 Every command takes an optional `PATH` (defaults to `.`), the shared budget
-flags (`--max-seconds`, `--max-entries`, `--max-rows`, `--max-depth`), and
-most accept `--ext`, `--pattern`, and `--size` to scope what's counted.
+flags (`--max-seconds`, `--max-entries`, `--max-rows`, `--max-depth`), the
+traversal-order flags (`--depth-first`, `--shuffle`, `--seed`), and most
+accept `--ext`, `--pattern`, and `--size` to scope what's counted.
 
 ### `gaz ext` — file-extension breakdown
 
@@ -227,6 +228,43 @@ exits non-zero with a message naming exactly what's missing.
 
 See [DESIGN.md](DESIGN.md) for the full design rationale, and
 [AGENTS.md](AGENTS.md) if you're an AI agent working in this repo.
+
+## Traversal order
+
+Walks are **breadth-first by default**: every directory at depth N is
+discovered before descending to depth N+1. On a truncated walk this means
+the partial result still shows the tree's overall shape — every top-level
+directory, not just complete coverage of whichever one happened to be
+scanned first while its siblings go undiscovered.
+
+```
+$ gaz tree /data/dataset --max-entries 50
+dir                     n_files  total_size
+----------------------  -------  ----------
+/data/dataset/train     12       1.2 GB
+/data/dataset/val       8        340 MB
+/data/dataset/test      6        290 MB
+/data/dataset/docs      3        14 KB
+
+Total (at least, walk stopped early): 5 dirs, 29 files, 1.8 GB
+Stopped at the 50 entries limit ...
+```
+
+- **`--depth-first`** — the opposite: complete, deep coverage of the first
+  branches at the cost of breadth. Useful when you specifically want to
+  confirm one subtree's structure fast rather than survey the whole tree.
+- **`--shuffle`** — randomizes sibling order at each directory before it's
+  explored, so a truncated walk samples a different slice of a wide
+  directory on each run instead of always the same alphabetically-first
+  entries. Add **`--seed N`** for a reproducible shuffle.
+
+```
+$ gaz find "*.jpg" /data/dataset --shuffle --max-entries 1000
+# a different sample of matches each run
+
+$ gaz find "*.jpg" /data/dataset --shuffle --seed 42 --max-entries 1000
+# the same sample every time
+```
 
 ## Why "gazetteer"
 

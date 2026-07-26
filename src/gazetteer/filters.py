@@ -22,6 +22,30 @@ _LIMIT_OPTIONS = [
     click.option("--max-depth", default=None, type=int, help="Depth to scope the walk to."),
 ]
 
+_TRAVERSAL_OPTIONS = [
+    click.option(
+        "--depth-first",
+        is_flag=True,
+        help=(
+            "Walk depth-first instead of the default breadth-first. "
+            "Breadth-first means a truncated walk still discovers every "
+            "top-level directory before going deep into any one of them; "
+            "depth-first exhausts the budget on the first branches instead."
+        ),
+    ),
+    click.option(
+        "--shuffle",
+        is_flag=True,
+        help="Randomize sibling order at each directory, so a truncated walk samples a different slice of a wide directory on each run.",
+    ),
+    click.option(
+        "--seed",
+        default=None,
+        type=int,
+        help="Seed for --shuffle, for a reproducible random order. Ignored without --shuffle.",
+    ),
+]
+
 SIZE_HELP = (
     "Only include files matching this size. Prefix with >, >=, <, <=, "
     "or nothing for exact (e.g. --size '>1M', --size '<=2k'). "
@@ -63,6 +87,12 @@ _FILTER_OPTIONS = [
 
 def limit_options(f):
     for option in reversed(_LIMIT_OPTIONS):
+        f = option(f)
+    return f
+
+
+def traversal_options(f):
+    for option in reversed(_TRAVERSAL_OPTIONS):
         f = option(f)
     return f
 

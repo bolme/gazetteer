@@ -15,6 +15,7 @@ from gazetteer.filters import (
     filter_options,
     limit_options,
     matches_filters,
+    traversal_options,
     validate_size_filters,
 )
 from gazetteer.walk import WalkEntry
@@ -29,6 +30,7 @@ def main() -> None:
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
+@traversal_options
 @filter_options
 def ext(
     path: str,
@@ -36,6 +38,9 @@ def ext(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    depth_first: bool,
+    shuffle: bool,
+    seed: int | None,
     extensions: tuple[str, ...],
     patterns: tuple[str, ...],
     size_filters: tuple[str, ...],
@@ -46,6 +51,9 @@ def ext(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        depth_first=depth_first,
+        shuffle=shuffle,
+        seed=seed,
     )
 
     sizes_by_ext: dict[str, list[int]] = defaultdict(list)
@@ -84,6 +92,7 @@ def ext(
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
+@traversal_options
 @filter_options
 def tree(
     path: str,
@@ -91,6 +100,9 @@ def tree(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    depth_first: bool,
+    shuffle: bool,
+    seed: int | None,
     extensions: tuple[str, ...],
     patterns: tuple[str, ...],
     size_filters: tuple[str, ...],
@@ -101,6 +113,9 @@ def tree(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        depth_first=depth_first,
+        shuffle=shuffle,
+        seed=seed,
     )
 
     stats: dict[str, list[int]] = defaultdict(list)
@@ -137,6 +152,7 @@ def tree(
 @click.argument("pattern")
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
+@traversal_options
 @click.option(
     "--ext",
     "extensions",
@@ -157,6 +173,9 @@ def find(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    depth_first: bool,
+    shuffle: bool,
+    seed: int | None,
     extensions: tuple[str, ...],
     size_filters: tuple[str, ...],
 ) -> None:
@@ -166,6 +185,9 @@ def find(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        depth_first=depth_first,
+        shuffle=shuffle,
+        seed=seed,
     )
 
     matches = [
@@ -190,6 +212,7 @@ def find(
     help="Only include files last modified more than this long ago (e.g. 90d, 6h, 2w, 1y).",
 )
 @limit_options
+@traversal_options
 @filter_options
 def stale(
     path: str,
@@ -198,6 +221,9 @@ def stale(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    depth_first: bool,
+    shuffle: bool,
+    seed: int | None,
     extensions: tuple[str, ...],
     patterns: tuple[str, ...],
     size_filters: tuple[str, ...],
@@ -213,6 +239,9 @@ def stale(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        depth_first=depth_first,
+        shuffle=shuffle,
+        seed=seed,
     )
 
     now = time.time()
@@ -246,12 +275,16 @@ def stale(
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
+@traversal_options
 def empty(
     path: str,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    depth_first: bool,
+    shuffle: bool,
+    seed: int | None,
 ) -> None:
     """Directories containing no files anywhere in their subtree."""
     result = walk.walk(
@@ -259,6 +292,9 @@ def empty(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        depth_first=depth_first,
+        shuffle=shuffle,
+        seed=seed,
     )
 
     root = os.path.abspath(path)
@@ -304,6 +340,7 @@ def empty(
     help="Separate wall-clock budget for the hashing pass (after the walk completes).",
 )
 @limit_options
+@traversal_options
 @filter_options
 def dup(
     path: str,
@@ -312,6 +349,9 @@ def dup(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    depth_first: bool,
+    shuffle: bool,
+    seed: int | None,
     extensions: tuple[str, ...],
     patterns: tuple[str, ...],
     size_filters: tuple[str, ...],
@@ -322,6 +362,9 @@ def dup(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        depth_first=depth_first,
+        shuffle=shuffle,
+        seed=seed,
     )
 
     candidates = [

@@ -35,6 +35,14 @@ filesystem must go through `walk.py` and respect `--max-seconds`,
 say whether the result is complete or a lower bound, and if partial, what
 stopped it and how to get further (see `report.status_line`).
 
+`walk.py` traverses breadth-first by default specifically because of this
+rule: on a truncated walk, BFS still shows the tree's overall shape (every
+top-level dir before descending into any one of them) instead of complete
+depth-first coverage of the first branch and nothing else. `--depth-first`
+opts back into the old order; `--shuffle`/`--seed` randomize sibling order
+so repeated truncated runs sample different parts of a wide directory. See
+DESIGN.md's "Traversal order" section.
+
 ## Where things live
 
 ```
@@ -94,6 +102,11 @@ tests/              # one test file per source module, plus CLI-level test files
   descent, `max_seconds`/`max_entries` actually stopping the walk, a
   nonexistent root, and a root that's a file rather than a directory. See
   `tests/test_walk.py`.
+- Traversal-order behavior needs tests that actually distinguish BFS from
+  DFS under a tight budget (not just "doesn't crash") — e.g. a wide-shallow
+  fixture tree where BFS discovers every top-level dir before descending
+  and DFS goes deep into the first branch instead. `shuffle=True` needs a
+  same-seed-is-reproducible test and a different-seeds-differ test.
 - Every new command needs: a happy-path test, a test on a completely empty
   tree, and a test that its output includes the completeness/status line.
 - Parsing functions (`parse_size`, `parse_size_filter`, `parse_duration`)
@@ -109,10 +122,11 @@ tests/              # one test file per source module, plus CLI-level test files
 1. Does it need anything `walk.py` doesn't already give you (a `WalkResult`
    of `WalkEntry` objects)? If yes, that's usually a walker change, not a
    command-local workaround.
-2. Reuse `filters.limit_options` and `filters.filter_options` for the
-   standard flags unless the command has a genuine reason to diverge (see
-   how `find` keeps its positional `PATTERN` argument instead of adding a
-   redundant `--pattern`).
+2. Reuse `filters.limit_options`, `filters.traversal_options`, and
+   `filters.filter_options` for the standard flags unless the command has
+   a genuine reason to diverge (see how `find` keeps its positional
+   `PATTERN` argument instead of adding a redundant `--pattern`). Thread
+   `depth_first`/`shuffle`/`seed` straight through to `walk.walk()`.
 3. Print a table (`report.render_table`), then a blank line, then any
    command-specific totals line, then `report.status_line(...)` last.
 4. Add tests before considering it done: happy path, empty tree, and at

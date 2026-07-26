@@ -205,3 +205,104 @@ def test_walk_elapsed_time_is_tracked(tmp_path):
 
     assert result.elapsed >= 0
     assert result.elapsed < 5  # sanity bound, not a real timing assertion
+
+
+def _make_wide_shallow_tree(tmp_path, n_top_dirs=4):
+    """n_top_dirs directories, each with one file directly inside and one
+    nested subdirectory containing another file. Used to distinguish BFS
+    (discovers all top dirs before descending) from DFS (goes deep into
+    the first branch before discovering siblings)."""
+    names = [f"top{i}" for i in range(n_top_dirs)]
+    for name in names:
+        d = tmp_path / name
+        (d / "nested").mkdir(parents=True)
+        (d / "nested" / "deep.txt").write_text("x")
+    return names
+
+
+def test_walk_is_breadth_first_by_default(tmp_path):
+    names = _make_wide_shallow_tree(tmp_path, n_top_dirs=6)
+
+    # Budget: root + 6 top dirs = 7 dir-scans is enough to have scanned
+    # every top-level dir (and thereby discovered, but not scanned into,
+    # each "nested" child) but too little to have gone two levels deep.
+    result = walk.walk(str(tmp_path), max_entries=7)
+
+    assert not result.complete
+    discovered_dir_names = {e.name for e in result.entries if e.is_dir}
+    assert discovered_dir_names == set(names) | {"nested"}
+    # None of the nested/deep.txt files should have been reached yet.
+    assert "deep.txt" not in {e.name for e in result.entries}
+
+
+def test_walk_depth_first_goes_deep_before_wide(tmp_path):
+    _make_wide_shallow_tree(tmp_path, n_top_dirs=6)
+
+    result = walk.walk(str(tmp_path), max_entries=4, depth_first=True)
+
+    assert not result.complete
+    # With a tight budget, DFS should have scanned into a "nested" dir
+    # (depth 2) rather than only having discovered top-level siblings.
+    dir_entries = [e for e in result.entries if e.is_dir]
+    assert any(e.name == "nested" for e in dir_entries)
+
+
+def test_walk_bfs_discovers_more_top_level_dirs_than_dfs_under_same_budget(tmp_path):
+    _make_wide_shallow_tree(tmp_path, n_top_dirs=8)
+
+    bfs_result = walk.walk(str(tmp_path), max_entries=5)
+    dfs_result = walk.walk(str(tmp_path), max_entries=5, depth_first=True)
+
+    bfs_top_dirs_scanned = {
+        e.parent for e in bfs_result.entries
+    }
+    dfs_top_dirs_scanned = {
+        e.parent for e in dfs_result.entries
+    }
+    # BFS should have scanned into (i.e. discovered children of) strictly
+    # more distinct directories than DFS under an identical tight budget.
+    assert len(bfs_top_dirs_scanned) >= len(dfs_top_dirs_scanned)
+
+
+def test_walk_shuffle_changes_order_across_seeds(tmp_path):
+    for i in range(20):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+    result_a = walk.walk(str(tmp_path), shuffle=True, seed=1)
+    result_b = walk.walk(str(tmp_path), shuffle=True, seed=2)
+
+    order_a = [e.name for e in result_a.entries]
+    order_b = [e.name for e in result_b.entries]
+    assert set(order_a) == set(order_b)  # same files found either way
+    assert order_a != order_b  # but in a different order
+
+
+def test_walk_shuffle_same_seed_is_reproducible(tmp_path):
+    for i in range(20):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+    result_a = walk.walk(str(tmp_path), shuffle=True, seed=42)
+    result_b = walk.walk(str(tmp_path), shuffle=True, seed=42)
+
+    order_a = [e.name for e in result_a.entries]
+    order_b = [e.name for e in result_b.entries]
+    assert order_a == order_b
+
+
+def test_walk_shuffle_without_seed_still_finds_all_entries(tmp_path):
+    for i in range(10):
+        (tmp_path / f"f{i}.txt").write_text("x")
+
+    result = walk.walk(str(tmp_path), shuffle=True)
+
+    assert result.complete
+    assert result.n_files == 10
+
+
+def test_walk_depth_first_and_shuffle_compose(tmp_path):
+    _make_wide_shallow_tree(tmp_path, n_top_dirs=4)
+
+    # Should not raise, and should still respect the walk budgets.
+    result = walk.walk(str(tmp_path), depth_first=True, shuffle=True, seed=1, max_seconds=5)
+
+    assert result.complete
