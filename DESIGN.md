@@ -91,6 +91,29 @@ The status line names whichever budget actually stopped the walk (never a
 budget the caller left unlimited), so the re-run suggestion is always
 something that would actually help.
 
+## Excluding directories
+
+`--exclude PATTERN` (repeatable, glob against a directory's basename —
+e.g. `--exclude node_modules`, `--exclude '.*'`) prunes a directory
+*before* descent: it's never scanned, never appears in output, and never
+counts against `--max-entries`. This is deliberately a walker-level
+change rather than an output filter — the point isn't just cleaner
+results, it's freeing up the time/entry budget so it's spent on
+directories that actually matter instead of being burned inside a noisy
+subtree. The walk root itself is never excluded even if its basename
+matches. Available on all six commands via the shared `limit_options`.
+
+`gaz dup --skip-vendored` builds on this: it adds a curated list of
+common package-manager/dependency directory names (`node_modules`,
+`site-packages`, `.venv`, `vendor`, etc. — see `cli.VENDORED_DIR_NAMES`)
+to the exclude set. It's opt-in, not on by default — gaz doesn't guess
+what counts as noise without being asked, consistent with never silently
+hiding data — and it composes with `--exclude` rather than replacing it.
+The motivating case: the largest duplicate sets on a real large tree
+were near-entirely inside an installed-package tree, where "reclaiming"
+the space would mean breaking the installed environment, not cleaning
+anything up.
+
 ## Output contract
 
 Every command prints a table, then a one-line natural-language status. Both humans

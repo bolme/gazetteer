@@ -20,6 +20,21 @@ from gazetteer.filters import (
 )
 from gazetteer.walk import WalkEntry
 
+# Directory basenames that gaz dup --skip-vendored excludes: common
+# package-manager/dependency install directories where duplicate files
+# are a byproduct of how packages ship, not something a user can safely
+# reclaim by deleting one copy.
+VENDORED_DIR_NAMES = (
+    "node_modules",
+    "site-packages",
+    ".venv",
+    "venv",
+    "vendor",
+    "bower_components",
+    ".tox",
+    "target",  # Rust/Java/Maven/Cargo build output
+)
+
 
 @click.group()
 @click.version_option(package_name="gaz")
@@ -38,6 +53,7 @@ def ext(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    exclude: tuple[str, ...],
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -51,6 +67,7 @@ def ext(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        exclude=exclude,
         depth_first=depth_first,
         shuffle=shuffle,
         seed=seed,
@@ -100,6 +117,7 @@ def tree(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    exclude: tuple[str, ...],
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -113,6 +131,7 @@ def tree(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        exclude=exclude,
         depth_first=depth_first,
         shuffle=shuffle,
         seed=seed,
@@ -173,6 +192,7 @@ def find(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    exclude: tuple[str, ...],
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -185,6 +205,7 @@ def find(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        exclude=exclude,
         depth_first=depth_first,
         shuffle=shuffle,
         seed=seed,
@@ -221,6 +242,7 @@ def stale(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    exclude: tuple[str, ...],
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -239,6 +261,7 @@ def stale(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        exclude=exclude,
         depth_first=depth_first,
         shuffle=shuffle,
         seed=seed,
@@ -282,6 +305,7 @@ def empty(
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    exclude: tuple[str, ...],
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -299,6 +323,7 @@ def empty(
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        exclude=exclude,
         depth_first=depth_first,
         shuffle=shuffle,
         seed=seed,
@@ -373,16 +398,29 @@ def empty(
     show_default=True,
     help="Separate wall-clock budget for the hashing pass (after the walk completes).",
 )
+@click.option(
+    "--skip-vendored",
+    is_flag=True,
+    help=(
+        "Skip common package-manager/dependency directories (e.g. "
+        f"{', '.join(VENDORED_DIR_NAMES[:4])}, ...) — duplicates inside "
+        "them usually can't be reclaimed without breaking the installed "
+        "environment, so they're just noise in the results. Combines with "
+        "--exclude rather than replacing it."
+    ),
+)
 @limit_options
 @traversal_options
 @filter_options
 def dup(
     path: str,
     max_hash_seconds: float,
+    skip_vendored: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
+    exclude: tuple[str, ...],
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -391,11 +429,14 @@ def dup(
     size_filters: tuple[str, ...],
 ) -> None:
     """Duplicate files by content hash — grouped by size first, then hashed."""
+    if skip_vendored:
+        exclude = tuple(exclude) + VENDORED_DIR_NAMES
     result = walk.walk(
         path,
         max_seconds=max_seconds,
         max_entries=max_entries,
         max_depth=max_depth,
+        exclude=exclude,
         depth_first=depth_first,
         shuffle=shuffle,
         seed=seed,

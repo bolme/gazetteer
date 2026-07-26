@@ -40,6 +40,17 @@ _LIMIT_OPTIONS = [
         help="Rows printed; aggregation continues past this. 0 means show every row.",
     ),
     click.option("--max-depth", default=None, type=int, help="Depth to scope the walk to."),
+    click.option(
+        "--exclude",
+        "exclude",
+        multiple=True,
+        help=(
+            "Skip directories whose name matches this glob (e.g. --exclude "
+            "node_modules, --exclude '.*'). Repeatable. Pruned before descent: "
+            "an excluded directory is never scanned and never counts against "
+            "--max-entries, freeing budget for directories that matter."
+        ),
+    ),
 ]
 
 _TRAVERSAL_OPTIONS = [

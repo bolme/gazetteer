@@ -385,3 +385,65 @@ def test_walk_scanned_dirs_empty_directory_still_counts_as_scanned(tmp_path):
 
     root = os.path.abspath(str(tmp_path))
     assert result.scanned_dirs == {root}
+
+
+def test_walk_exclude_prunes_matching_directory_entirely(tmp_path):
+    (tmp_path / "keep").mkdir()
+    (tmp_path / "keep" / "a.txt").write_text("a")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "b.txt").write_text("b")
+    (tmp_path / "node_modules" / "sub").mkdir()
+    (tmp_path / "node_modules" / "sub" / "c.txt").write_text("c")
+
+    result = walk.walk(str(tmp_path), exclude=("node_modules",))
+
+    paths = {e.path for e in result.entries}
+    assert not any("node_modules" in p for p in paths)
+    assert result.n_files == 1
+    # excluded dir itself, and everything under it, never scanned
+    assert not any("node_modules" in d for d in result.scanned_dirs)
+
+
+def test_walk_exclude_does_not_count_against_max_entries(tmp_path):
+    (tmp_path / "node_modules").mkdir()
+    for i in range(20):
+        (tmp_path / "node_modules" / f"f{i}.txt").write_text("x")
+    (tmp_path / "keep.txt").write_text("x")
+
+    result = walk.walk(str(tmp_path), max_entries=5, exclude=("node_modules",))
+
+    assert result.complete
+    assert result.n_files == 1
+
+
+def test_walk_exclude_supports_glob_patterns(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("x")
+    (tmp_path / ".cache").mkdir()
+    (tmp_path / ".cache" / "data").write_text("x")
+    (tmp_path / "visible.txt").write_text("x")
+
+    result = walk.walk(str(tmp_path), exclude=(".*",))
+
+    paths = {e.path for e in result.entries}
+    assert len(paths) == 1
+    assert result.n_files == 1
+
+
+def test_walk_exclude_root_itself_is_never_pruned(tmp_path):
+    root = tmp_path / "node_modules"
+    root.mkdir()
+    (root / "f.txt").write_text("x")
+
+    result = walk.walk(str(root), exclude=("node_modules",))
+
+    assert result.n_files == 1
+
+
+def test_walk_exclude_empty_by_default(tmp_path):
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "f.txt").write_text("x")
+
+    result = walk.walk(str(tmp_path))
+
+    assert result.n_files == 1

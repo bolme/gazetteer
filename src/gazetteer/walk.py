@@ -6,6 +6,15 @@ symlinks and permission errors uniformly. (--max-rows is a third budget,
 but it bounds *output*, not the walk itself, so it's enforced by callers
 slicing their result rows, not by walk().)
 
+`exclude` patterns (matched against a directory's basename) are pruned
+*before* descent: an excluded directory is never scanned, never counted
+against n_dirs, never queued, and its contents never appear in
+result.entries or count against max_entries/max_seconds. This is what
+makes --exclude actually useful on a real tree — skipping a noisy
+subtree (vendored dependencies, .git, a build cache) frees up budget for
+directories that matter, rather than just filtering excluded entries out
+of the output afterward.
+
 Only max_seconds is on by default. max_entries defaults to 0 (unlimited):
 on fast local storage there's no reason to cut a scan short on entry count
 alone when there was plenty of time left, and the risk max_entries exists
@@ -26,6 +35,7 @@ behavior (complete coverage of the first branches, at the cost of breadth).
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import random
 import time
@@ -71,6 +81,7 @@ def walk(
     depth_first: bool = False,
     shuffle: bool = False,
     seed: int | None = None,
+    exclude: tuple[str, ...] = (),
 ) -> WalkResult:
     """Walk `root` under explicit time/count/depth budgets.
 
@@ -88,11 +99,20 @@ def walk(
     each directory's entries before they're queued, so a truncated walk
     samples a different slice of a wide directory on each run — pass seed
     for a reproducible shuffle.
+
+    exclude is a tuple of glob patterns matched against a directory's
+    basename (e.g. "node_modules", ".git", ".*"). A matching directory is
+    pruned before descent: it's never scanned, never appears in
+    result.entries, and never counts against max_entries. The root itself
+    is never excluded, even if its basename matches.
     """
     result = WalkResult()
     start = time.monotonic()
     root = os.path.abspath(root)
     rng = random.Random(seed) if shuffle else None
+
+    def is_excluded(name: str) -> bool:
+        return any(fnmatch.fnmatch(name, pattern) for pattern in exclude)
 
     def time_exceeded() -> bool:
         return max_seconds > 0 and time.monotonic() - start >= max_seconds
@@ -183,6 +203,8 @@ def walk(
                 continue
 
             if is_dir:
+                if is_excluded(entry.name):
+                    continue
                 result.entries.append(
                     WalkEntry(
                         path=entry.path,

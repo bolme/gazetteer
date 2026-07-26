@@ -37,28 +37,22 @@ easy to under-value against feature requests like "add --json":
 
 1. gaz find's positional PATTERN vs --pattern discoverability trap — Improvement, P1, S
 2. Flag suspicious/epoch-like mtimes in gaz stale — Improvement, P1, S
-3. No --exclude / path-ignore flag — Feature, P1, M
-4. gaz dup: separate real duplicates from vendored/package-manager noise — Feature, P2, M (built on #3)
-5. gaz tree: recursive/rollup size mode — Feature, P2, M
-6. Bounded machine-readable output format — Feature, P2, L
-7. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S (built on #6)
-8. Add a SKILL / agent-guidance doc — Feature, P1, S (docs-only, no code risk)
-9. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
+3. gaz tree: recursive/rollup size mode — Feature, P2, M
+4. Bounded machine-readable output format — Feature, P2, L
+5. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S (built on #4)
+6. Add a SKILL / agent-guidance doc — Feature, P1, S (docs-only, no code risk)
+7. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
 
 Rationale for the order: the remaining P1 usability/default items come
 first because they're each small and independently shippable, and the
 SKILL doc is pulled forward to P1 despite being a "feature idea" because
 it's pure documentation (no code risk) and immediately raises the value
-of everything already shipped. `--exclude` (#3) is ranked ahead of the
-two items that most benefit from it (#4, #5 lean on being able to skip
-noisy subtrees) even though it's a bigger change, because doing it first
-avoids building `dup`'s vendored-directory heuristic and then
-reconciling it with a general exclude mechanism later. The output-format
-and MCP items are pushed to the end because they're the largest, most
-design-heavy changes, and the MCP surface specifically should mirror
-whatever flags exist by then rather than be designed twice.
+of everything already shipped. The output-format and MCP items are
+pushed to the end because they're the largest, most design-heavy
+changes, and the MCP surface specifically should mirror whatever flags
+exist by then rather than be designed twice.
 
-Three items that were previously on this list have been fixed and
+Five items that were previously on this list have been fixed and
 verified — see the "Recently resolved" section at the bottom for what
 changed and how it was tested.
 
@@ -97,43 +91,7 @@ timestamp, not a real file age)" rather than reporting them at face
 value. A small, additive check in the `stale` command's row-rendering;
 no walker or schema change.
 
-### 3. No --exclude / path-ignore flag on any command
-**Feature · Priority P1 · Difficulty M**
-
-Every walk-based command scans everything under `--max-depth`, with no
-way to skip a known-irrelevant subtree (a package manager's install
-directory, a build cache, `.git`, etc.) before it eats into the
-`--max-entries`/`--max-seconds` budget. On a real large-tree run, a
-meaningful fraction of the entries and duplicate results were pure
-noise from exactly this kind of directory. An `--exclude PATTERN`
-(repeatable, glob against path or dirname) would both improve result
-quality and — more importantly given gaz's time/count budgets — let a
-scan spend its limited budget on directories that actually matter
-instead of burning through `--max-entries` inside a vendored dependency
-tree. Medium effort: needs a walker-level change (skip descending into
-excluded dirs, ideally *before* counting them against the budget, not
-just filtering them from output afterward) plus a new shared CLI option
-threaded through all six commands, similar in shape to the existing
-`filters.py` options.
-
-### 4. gaz dup needs a way to separate "your duplicates" from "vendored/package-manager duplicates"
-**Feature · Priority P2 · Difficulty M**
-
-The largest duplicate sets found in a real run were near-entirely inside
-a Python package manager's installed-package tree (repeated JS bundles,
-fonts, source maps as a byproduct of how the packages ship) — reclaiming
-that space would mean breaking the installed environment, not cleaning
-up anything. `gaz dup` has no way today to deprioritize or exclude
-duplicates that live inside dependency-manager directories
-(`site-packages`, `node_modules`, `.venv`, conda envs, etc.). Once #3
-(`--exclude`) exists, a user can already work around this manually;
-this item is the built-in heuristic on top (recognize common
-package-manager directory names by default, or a `--skip-vendored`
-flag) since "noise from vendored dependencies" is dup's single biggest
-source of low-value results and shouldn't require every user to
-rediscover the same exclude list. Depends on #3 landing first.
-
-### 5. gaz tree has no recursive/rollup size mode
+### 3. gaz tree has no recursive/rollup size mode
 **Feature · Priority P2 · Difficulty M**
 
 `gaz tree` reports each directory's *direct* children only — it doesn't
@@ -149,7 +107,7 @@ Medium effort: the raw per-file data is already collected, but rolling
 it up per-ancestor-directory needs a real aggregation pass and a
 decision about how deep results should nest in the table output.
 
-### 6. No machine-readable output format
+### 4. No machine-readable output format
 **Feature · Priority P2 · Difficulty L**
 
 All output today is the plain aligned text table + status line. That's
@@ -166,7 +124,7 @@ consistent shape across six different commands' row types plus the
 completeness metadata) before any code — this is the kind of change
 that should get its own design doc section, not just a flag.
 
-### 7. No dry-run / preview-before-acting workflow for gaz dup
+### 5. No dry-run / preview-before-acting workflow for gaz dup
 **Feature · Priority P3 · Difficulty S**
 
 `gaz dup` (and any future command that suggests deletions) has no way to
@@ -175,12 +133,12 @@ outside the tool — today that means manually copying paths out of the
 table. This is lower priority than the items above since gaz doesn't
 delete anything itself (it only reports), but worth considering a
 `--script` or `--emit-paths` style output tailored to feeding into a
-review step or a deletion command. Small once #6 (structured output)
+review step or a deletion command. Small once #4 (structured output)
 exists to build it on — mostly a thin rendering of data gaz already
 computes — but blocked until then, since duplicating a one-off output
 format now would just be replaced later.
 
-### 8. Add a SKILL (or equivalent agent-guidance doc) for using gaz effectively
+### 6. Add a SKILL (or equivalent agent-guidance doc) for using gaz effectively
 **Feature · Priority P1 · Difficulty S**
 
 Right now an agent discovering gaz has to infer good practice from
@@ -204,7 +162,11 @@ aren't obvious from flags in isolation:
   subtree rather than surveying broadly.
 - When results should feed into another step (a script, a second agent
   call), prefer the bounded structured-output mode (once it exists, see
-  item 6) over scraping the text table.
+  item 4) over scraping the text table.
+- On a real large tree with vendored dependencies (`node_modules`,
+  `site-packages`, `.venv`, etc.), use `--exclude` (or `gaz dup
+  --skip-vendored`) to keep noise out of results and free up budget for
+  directories that matter, rather than filtering it out after the fact.
 
 Ranked P1 despite being a "feature idea" because it's pure documentation
 with no code risk, and it immediately raises the value of every command
@@ -212,7 +174,7 @@ gaz already ships — the highest value-to-effort item on this whole list.
 This should live as a real skill file once the project's skill-authoring
 convention is decided — for now, tracked here so the need isn't lost.
 
-### 9. Add an MCP server interface
+### 7. Add an MCP server interface
 **Feature · Priority P3 · Difficulty L**
 
 DESIGN.md's Phase 4 already calls this out: expose the same commands as
@@ -224,12 +186,31 @@ gaz as a tool gets the same "safe, bounded" guarantee that makes it
 useful over a raw `find`/`du` shellout that might hang for the ten
 minutes an agent doesn't have. Deliberately last: it's a large effort in
 its own right (tool schema, server lifecycle, packaging), and it should
-wait until the CLI surface (especially #3 --exclude and #6 structured
-output) is more settled, since the MCP tool schema will want to mirror
-stable flags rather than be redesigned twice.
+wait until the CLI surface (especially #4 structured output) is more
+settled, since the MCP tool schema will want to mirror stable flags
+rather than be redesigned twice.
 
 ## Recently resolved
 
+- **No --exclude / path-ignore flag; gaz dup couldn't separate real
+  duplicates from vendored noise.** `walk()` now accepts `exclude: tuple[
+  str, ...]` — glob patterns matched against a directory's basename — and
+  prunes matching directories *before* descent: they're never scanned,
+  never appear in `result.entries`, and never count against
+  `--max-entries`, so excluding a noisy subtree actually frees up budget
+  rather than just filtering it from output afterward. Exposed as a
+  repeatable `--exclude PATTERN` option threaded through all six commands
+  via `filters.limit_options`. `gaz dup --skip-vendored` builds on it: an
+  opt-in flag that adds a curated list of common package-manager
+  directory names (`cli.VENDORED_DIR_NAMES` — `node_modules`,
+  `site-packages`, `.venv`, `vendor`, etc.) to the exclude set, composing
+  with any explicit `--exclude` rather than replacing it. Tested in
+  `tests/test_walk.py` (pruning, budget exemption, glob patterns, root
+  never excluded), `tests/test_cli_filters.py` (`--exclude` on multiple
+  commands, repeatability, budget interaction), and `tests/test_cli_dup.py`
+  (`--skip-vendored` alone and combined with `--exclude`); manually
+  verified against a real `node_modules`/vendored tree that excluded
+  duplicates disappear from `gaz dup`'s results.
 - **Limits model: only --max-seconds on by default, --max-entries opt-in,
   --max-rows still on but escapable.** All three budgets used to apply
   simultaneously (stop on whichever was hit first), so a scan on fast

@@ -57,8 +57,11 @@ into `site-packages` directly:
 
 Every command takes an optional `PATH` (defaults to `.`), the shared budget
 flags (`--max-seconds`, `--max-entries`, `--max-rows`, `--max-depth`), the
-traversal-order flags (`--depth-first`, `--shuffle`, `--seed`), and most
-accept `--ext`, `--pattern`, and `--size` to scope what's counted.
+traversal-order flags (`--depth-first`, `--shuffle`, `--seed`), a repeatable
+`--exclude PATTERN` to prune noisy subtrees (glob against a directory's
+basename, e.g. `--exclude node_modules`, `--exclude '.*'` — pruned before
+descent, so it also frees up budget rather than just hiding output), and
+most accept `--ext`, `--pattern`, and `--size` to scope what's counted.
 
 ### `gaz ext` — file-extension breakdown
 
@@ -110,6 +113,12 @@ Scanned 1,204 dirs / 964,012 files in 6.1s. Complete.
 
 Groups candidates by size first (cheap), then hashes only same-size groups
 under a separate `--max-hash-seconds` budget, and reports reclaimable space.
+Add `--skip-vendored` to exclude common package-manager/dependency
+directories (`node_modules`, `site-packages`, `.venv`, `vendor`, etc.) —
+duplicates inside them are a byproduct of how packages ship, not something
+you can reclaim without breaking the installed environment, so they're
+usually just noise. Opt-in, and composes with `--exclude` rather than
+replacing it.
 
 ```
 $ gaz dup /data/dataset
