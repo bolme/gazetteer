@@ -136,3 +136,36 @@ def test_json_output_reflects_truncated_walk(tmp_path):
 
     assert data["complete"] is False
     assert data["stop_reason"] is not None
+
+
+def test_json_output_combined_with_exclude(tmp_path):
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "dep.js").write_text("x")
+    (tmp_path / "src.py").write_text("x")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["ext", str(tmp_path), "--json", "--exclude", "node_modules"]
+    )
+    data = _parse(result)
+
+    exts = {row["ext"] for row in data["rows"]}
+    assert exts == {".py"}
+    assert data["total"]["files"] == 1
+
+
+def test_dup_json_output_with_skip_vendored(tmp_path):
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "x.js").write_text("same content")
+    (tmp_path / "node_modules" / "y.js").write_text("same content")
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "a.txt").write_text("same content")
+    (tmp_path / "real" / "b.txt").write_text("same content")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["dup", str(tmp_path), "--json", "--skip-vendored"])
+    data = _parse(result)
+
+    assert data["total"]["duplicate_sets"] == 1
+    assert data["rows"][0]["copies"] == 2
+    assert "node_modules" not in data["rows"][0]["path"]

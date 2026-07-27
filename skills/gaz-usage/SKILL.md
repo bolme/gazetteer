@@ -112,3 +112,4 @@ is actually consuming the most space.
 | `gaz empty` | What directories are dead weight (no files anywhere under them)? |
 | `gaz dup` | Where is space being wasted on duplicate file content? |
 | `gaz preview FILE` | What's actually inside this one file? |
+| `gaz convert FILE -o OUT` | Save a converted (DOCX/PPTX/XLSX/PDF → text) file to disk. |

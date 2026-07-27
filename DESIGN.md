@@ -324,7 +324,10 @@ gazetteer/
 └── tests/
 ```
 
-Seven modules. Resist splitting further until one exceeds ~300 lines.
+Seven modules. Resist splitting further until one exceeds ~300 lines —
+`cli.py` has already blown past this (714 lines as of 0.1.2, six
+commands each repeating the same walk/filter/render-or-json shape); see
+TODO.md's item on splitting it before adding another cross-cutting flag.
 
 Commands never touch SQL or `os.scandir` directly. They ask `cache.py` for a result
 set; it either answers from the DB or delegates to `walk.py`. That single seam is what

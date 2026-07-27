@@ -35,14 +35,16 @@ easy to under-value against feature requests like "add --json":
 
 ## Suggested order of work
 
-1. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S
-2. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
+1. cli.py has grown past its own 300-line convention — Improvement, P2, M
+2. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S
+3. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
 
-Rationale for the order: the dry-run item is smaller and no longer
-blocked (structured output landed), so it comes before MCP, which is
-pushed to the end because it's the largest, most design-heavy change and
-should mirror whatever flags exist by then rather than be redesigned
-twice.
+Rationale for the order: the cli.py split comes first since it's a
+maintainability concern flagged during a pre-release audit, not blocked
+on anything. The dry-run item is smaller and no longer blocked
+(structured output landed), so it comes before MCP, which is pushed to
+the end because it's the largest, most design-heavy change and should
+mirror whatever flags exist by then rather than be redesigned twice.
 
 Ten items that were previously on this list have been fixed and
 verified — see the "Recently resolved" section at the bottom for what
@@ -50,7 +52,26 @@ changed and how it was tested.
 
 ## Items, in suggested order
 
-### 1. No dry-run / preview-before-acting workflow for gaz dup
+### 1. cli.py has grown past its own 300-line module-splitting convention
+**Improvement · Priority P2 · Difficulty M**
+
+Both DESIGN.md and AGENTS.md say "resist splitting further until a
+module exceeds ~300 lines" — `cli.py` is now 714 lines (found during a
+pre-release audit), more than double that, after several rounds of
+adding a new flag (`--exclude`, `--json`, `--recursive`) to all six
+commands. Each command already follows an identical shape (walk, filter,
+branch on `--json`, render table, print totals/status) with the
+boilerplate duplicated six times — a real refactor opportunity, not just
+a line-count problem: a shared per-command dispatch (e.g. each command
+returns rows + a total dict, one function renders either JSON or table)
+would cut the duplication and make it structurally harder for one
+command's `--json` branch to drift from the others' shape. Medium
+effort: needs a design pass on where the split lines fall (one module
+per command? a shared "render or JSON" helper before splitting file
+boundaries?) before moving code, and full regression testing since it
+touches every command's dispatch path.
+
+### 2. No dry-run / preview-before-acting workflow for gaz dup
 **Feature · Priority P3 · Difficulty S**
 
 `gaz dup` (and any future command that suggests deletions) has no way to
@@ -66,7 +87,7 @@ a dedicated dry-run UX adds anything `--json | jq` doesn't already cover
 for a script/second-agent consumer, or whether it's only worth it for
 a human-facing preview mode.
 
-### 2. Add an MCP server interface
+### 3. Add an MCP server interface
 **Feature · Priority P3 · Difficulty L**
 
 DESIGN.md's Phase 4 already calls this out: expose the same commands as

@@ -31,9 +31,11 @@ pytest -q
 
 Do not add a feature that can run unbounded. Every command that walks the
 filesystem must go through `walk.py` and respect `--max-seconds`,
-`--max-entries`, and `--max-rows`. Every command's final line of output must
-say whether the result is complete or a lower bound, and if partial, what
-stopped it and how to get further (see `report.status_line`).
+`--max-entries`, `--max-rows`, and `--exclude`. Every command's final line
+of output must say whether the result is complete or a lower bound, and if
+partial, what stopped it and how to get further (see `report.status_line`).
+`--json` output must carry the same signal as a real field (`complete`,
+`stop_reason`), not just the text status line — see `report.json_output`.
 
 `walk.py` traverses breadth-first by default specifically because of this
 rule: on a truncated walk, BFS still shows the tree's overall shape (every
@@ -61,11 +63,14 @@ tests/              # one test file per source module, plus CLI-level test files
   `walk.py`'s traversal — if a command needs its own filesystem walk, that's
   a signal `walk.py`'s interface is wrong. Fix the walker, don't route
   around it.
-- Shared CLI option definitions (`--max-seconds`, `--ext`, `--size`, ...)
-  live in `filters.py`, not copy-pasted into each command in `cli.py`.
+- Shared CLI option definitions (`--max-seconds`, `--exclude`, `--json`,
+  `--ext`, `--size`, ...) live in `filters.py`, not copy-pasted into each
+  command in `cli.py`.
 - Size/duration parsing and formatting (`parse_size`, `parse_duration`,
   `human_size`, `human_duration`) live in `report.py`, not scattered inline.
-- Resist splitting a module further until it exceeds ~300 lines.
+- Resist splitting a module further until it exceeds ~300 lines. `cli.py`
+  is already an exception (714 lines) — see TODO.md before adding another
+  cross-cutting flag to all six commands without addressing it.
 
 ## Conventions
 
@@ -99,9 +104,15 @@ tests/              # one test file per source module, plus CLI-level test files
 
 - The walker (`walk.py`) must be tested against: a symlink loop, an
   unreadable directory, a deeply nested path, `max_depth` actually limiting
-  descent, `max_seconds`/`max_entries` actually stopping the walk, a
-  nonexistent root, and a root that's a file rather than a directory. See
+  descent, `max_seconds`/`max_entries` actually stopping the walk, `exclude`
+  actually pruning before descent (and not counting against `max_entries`),
+  a nonexistent root, and a root that's a file rather than a directory. See
   `tests/test_walk.py`.
+- A new shared flag that threads through all six commands (like `--exclude`
+  or `--json`) needs at least one CLI-level test combining it with another
+  recently-added shared flag, not just tested in isolation per-flag — see
+  `tests/test_cli_json.py`'s `--json` + `--exclude`/`--skip-vendored` tests
+  for the pattern.
 - Traversal-order behavior needs tests that actually distinguish BFS from
   DFS under a tight budget (not just "doesn't crash") — e.g. a wide-shallow
   fixture tree where BFS discovers every top-level dir before descending
@@ -126,10 +137,19 @@ tests/              # one test file per source module, plus CLI-level test files
    `filters.filter_options` for the standard flags unless the command has
    a genuine reason to diverge (see how `find` keeps its positional
    `PATTERN` argument instead of adding a redundant `--pattern`). Thread
-   `depth_first`/`shuffle`/`seed` straight through to `walk.walk()`.
-3. Print a table (`report.render_table`), then a blank line, then any
-   command-specific totals line, then `report.status_line(...)` last.
-4. Add tests before considering it done: happy path, empty tree, and at
-   least one truncation/edge case specific to that command's logic (see
-   `gaz empty`'s walk-truncated warning for an example of a truncation edge
-   case that isn't just "fewer rows").
+   `depth_first`/`shuffle`/`seed`/`exclude` straight through to
+   `walk.walk()`. `limit_options` also carries `json_output` (the `--json`
+   flag) — accept it as a parameter even if you branch on it immediately.
+3. Branch early on `json_output`: build the command's row dicts and a
+   `total` dict, call `report.json_output(result, rows, total=...)`,
+   `click.echo` it, and `return`. Otherwise print a table
+   (`report.render_table`), then a blank line, then any command-specific
+   totals line, then `report.status_line(...)` last. Keep both branches'
+   row content in sync — the JSON row shape should carry the same
+   information as the table columns, just as raw values instead of
+   `human_size`/`human_duration`-formatted strings. Document the new
+   row/`total` shape in DESIGN.md's "Structured output (--json)" table.
+4. Add tests before considering it done: happy path, empty tree, at least
+   one truncation/edge case specific to that command's logic (see `gaz
+   empty`'s walk-truncated warning for an example that isn't just "fewer
+   rows"), and a `--json` happy-path test asserting the row/total shape.
