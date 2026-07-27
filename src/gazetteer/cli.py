@@ -36,6 +36,24 @@ VENDORED_DIR_NAMES = (
 )
 
 
+class FindCommand(click.Command):
+    """gaz find takes PATTERN positionally, unlike --pattern on every other
+    command — a user who's just used --pattern elsewhere and tries it here
+    hits a generic "no such option" error that reads as a missing feature
+    rather than a deliberate, differently-shaped argument. Point at the
+    actual fix instead of the default message.
+    """
+
+    def parse_args(self, ctx, args):
+        if "--pattern" in args:
+            raise click.UsageError(
+                "find takes PATTERN as a positional argument, not --pattern: "
+                "gaz find PATTERN [PATH]  (e.g. gaz find '*.jpg' /data)",
+                ctx=ctx,
+            )
+        return super().parse_args(ctx, args)
+
+
 @click.group()
 @click.version_option(package_name="gaz")
 def main() -> None:
@@ -167,7 +185,7 @@ def tree(
     click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
-@main.command()
+@main.command(cls=FindCommand)
 @click.argument("pattern")
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @limit_options
@@ -279,7 +297,12 @@ def stale(
 
     truncated = report.limit_rows(stale_entries, max_rows)
     rows = [
-        (e.path, report.human_duration(now - e.mtime), report.human_size(e.size))
+        (
+            e.path,
+            report.human_duration(now - e.mtime)
+            + (" (?)" if report.is_suspicious_mtime(e.mtime) else ""),
+            report.human_size(e.size),
+        )
         for e in truncated
     ]
     click.echo(report.render_table(rows, ("path", "age", "size")))
@@ -292,6 +315,15 @@ def stale(
         f"{len(stale_entries):,} files older than {older_than}, "
         f"{report.human_size(total_bytes)}"
     )
+
+    n_suspicious = sum(1 for e in stale_entries if report.is_suspicious_mtime(e.mtime))
+    if n_suspicious:
+        click.echo(
+            f"(?) {n_suspicious:,} file(s) have a timestamp within a week of "
+            f"the Unix epoch — likely a reset by another tool (a cache, "
+            f"archive, or sync tool), not a genuinely old file."
+        )
+
     click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 

@@ -90,6 +90,27 @@ def test_find_rejects_invalid_size(tmp_path):
     assert "invalid size" in result.output
 
 
+def test_find_dash_dash_pattern_gets_helpful_error(tmp_path):
+    (tmp_path / "a.jpg").write_text("x")
+    runner = CliRunner()
+    result = runner.invoke(main, ["find", "--pattern", "*.jpg", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "positional argument" in result.output
+    assert "gaz find PATTERN [PATH]" in result.output
+
+
+def test_find_positional_pattern_still_works(tmp_path):
+    (tmp_path / "a.jpg").write_text("x")
+    (tmp_path / "b.txt").write_text("x")
+    runner = CliRunner()
+    result = runner.invoke(main, ["find", "*.jpg", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "a.jpg" in result.output
+    assert "b.txt" not in result.output
+
+
 def _make_vendored_tree(tmp_path):
     (tmp_path / "src.py").write_text("x")
     (tmp_path / "node_modules").mkdir()

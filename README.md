@@ -98,7 +98,10 @@ Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ### `gaz find` — bounded pattern search
 
 Filters during the walk rather than after it, so a narrow search over a
-huge tree doesn't pay the cost of collecting everything first.
+huge tree doesn't pay the cost of collecting everything first. Unlike
+`tree`/`ext`/`stale`, `PATTERN` here is positional, not `--pattern` — this
+is intentional (see DESIGN.md), and `gaz find --pattern ...` errors with a
+pointer to the correct form rather than a generic "no such option."
 
 ```
 $ gaz find "*.xml" /data/dataset --size ">1M"
@@ -142,6 +145,11 @@ path                                age   size
 Total: 1 files older than 180d, 1.2 GB
 Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ```
+
+Ages within a week of the Unix epoch are flagged with `(?)` — that's
+almost always a timestamp reset by some other tool (a cache, archive, or
+sync tool), not a genuinely decades-old file, and gaz calls it out rather
+than reporting it indistinguishably from a real old file.
 
 ### `gaz empty` — dead directories
 

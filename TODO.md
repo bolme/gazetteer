@@ -35,63 +35,24 @@ easy to under-value against feature requests like "add --json":
 
 ## Suggested order of work
 
-1. gaz find's positional PATTERN vs --pattern discoverability trap — Improvement, P1, S
-2. Flag suspicious/epoch-like mtimes in gaz stale — Improvement, P1, S
-3. gaz tree: recursive/rollup size mode — Feature, P2, M
-4. Bounded machine-readable output format — Feature, P2, L
-5. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S (built on #4)
-6. Add a SKILL / agent-guidance doc — Feature, P1, S (docs-only, no code risk)
-7. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
+1. gaz tree: recursive/rollup size mode — Feature, P2, M
+2. Bounded machine-readable output format — Feature, P2, L
+3. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S (built on #2)
+4. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
 
-Rationale for the order: the remaining P1 usability/default items come
-first because they're each small and independently shippable, and the
-SKILL doc is pulled forward to P1 despite being a "feature idea" because
-it's pure documentation (no code risk) and immediately raises the value
-of everything already shipped. The output-format and MCP items are
-pushed to the end because they're the largest, most design-heavy
-changes, and the MCP surface specifically should mirror whatever flags
-exist by then rather than be designed twice.
+Rationale for the order: the output-format and MCP items are pushed to
+the end because they're the largest, most design-heavy changes, and the
+MCP surface specifically should mirror whatever flags exist by then
+rather than be designed twice. The dry-run item depends on structured
+output landing first.
 
-Five items that were previously on this list have been fixed and
+Eight items that were previously on this list have been fixed and
 verified — see the "Recently resolved" section at the bottom for what
 changed and how it was tested.
 
 ## Items, in suggested order
 
-### 1. gaz find's positional PATTERN vs --pattern is a discoverability trap
-**Improvement · Priority P1 · Difficulty S**
-
-`find` intentionally takes `PATTERN` as a positional argument (by
-design — see DESIGN.md's "find keeps its positional PATTERN argument
-instead of adding a redundant --pattern"), while `tree`/`ext`/`stale`
-all accept `--pattern` as an option. A user who has just used
-`--pattern` on another command reasonably tries `gaz find --pattern
-'*.bak'` next, gets `No such option '--pattern'`, and reads it as a
-missing feature rather than a different (intentional) argument shape.
-Not a bug in behavior, but a real usability gap. Fix options: make the
-error message for unknown `--pattern` on `find` explicitly point at the
-positional form, or reconsider whether `find` should accept `--pattern`
-as an alias for the positional argument for consistency. Either fix is
-a small, localized change to one command.
-
-### 2. Investigate flagging suspicious/epoch-like mtimes in gaz stale
-**Improvement · Priority P1 · Difficulty S**
-
-`gaz stale` correctly reports whatever `st_mtime` the OS gives it — that
-part isn't a gaz bug. But real runs surfaced files reported as several
-decades old (in cache/build-tool directories and inside a game-engine
-project), which is almost certainly a timestamp reset to the Unix epoch
-by some other tool (common with certain caches, archives, or sync
-tools), not filesystem corruption. Because gaz presents this
-indistinguishably from a genuinely old file, it can read as "gaz has a
-bug" rather than "gaz found something worth double-checking." Consider
-flagging ages that land suspiciously close to the epoch (or another
-common reset value) with a note like "(unusually old — may be a reset
-timestamp, not a real file age)" rather than reporting them at face
-value. A small, additive check in the `stale` command's row-rendering;
-no walker or schema change.
-
-### 3. gaz tree has no recursive/rollup size mode
+### 1. gaz tree has no recursive/rollup size mode
 **Feature · Priority P2 · Difficulty M**
 
 `gaz tree` reports each directory's *direct* children only — it doesn't
@@ -107,7 +68,7 @@ Medium effort: the raw per-file data is already collected, but rolling
 it up per-ancestor-directory needs a real aggregation pass and a
 decision about how deep results should nest in the table output.
 
-### 4. No machine-readable output format
+### 2. No machine-readable output format
 **Feature · Priority P2 · Difficulty L**
 
 All output today is the plain aligned text table + status line. That's
@@ -124,7 +85,7 @@ consistent shape across six different commands' row types plus the
 completeness metadata) before any code — this is the kind of change
 that should get its own design doc section, not just a flag.
 
-### 5. No dry-run / preview-before-acting workflow for gaz dup
+### 3. No dry-run / preview-before-acting workflow for gaz dup
 **Feature · Priority P3 · Difficulty S**
 
 `gaz dup` (and any future command that suggests deletions) has no way to
@@ -133,48 +94,12 @@ outside the tool — today that means manually copying paths out of the
 table. This is lower priority than the items above since gaz doesn't
 delete anything itself (it only reports), but worth considering a
 `--script` or `--emit-paths` style output tailored to feeding into a
-review step or a deletion command. Small once #4 (structured output)
+review step or a deletion command. Small once #2 (structured output)
 exists to build it on — mostly a thin rendering of data gaz already
 computes — but blocked until then, since duplicating a one-off output
 format now would just be replaced later.
 
-### 6. Add a SKILL (or equivalent agent-guidance doc) for using gaz effectively
-**Feature · Priority P1 · Difficulty S**
-
-Right now an agent discovering gaz has to infer good practice from
-`--help` text alone. A skill/guidance doc should cover things that
-aren't obvious from flags in isolation:
-- Start broad and cheap (`gaz tree`/`gaz ext` with default budgets)
-  before narrowing with `--ext`/`--pattern`/`--size`, rather than
-  guessing a narrow query first.
-- Treat "Total (at least, ...)" / "Stopped at the N limit" lines as
-  load-bearing — never treat a truncated result's numbers as exhaustive,
-  and follow the re-run suggestion gaz itself prints (it now names
-  whichever budget flag actually applies).
-- On slow storage (network mounts, spinning disks, anything where a bare
-  `find .` has been known to hang), prefer smaller `--max-seconds` and
-  iterate rather than requesting a huge budget up front — and know which
-  limits are even active by default (only `--max-seconds`; `--max-entries`
-  is opt-in, `--max-rows` stays on but supports `0` for every row).
-- Use `--shuffle`/`--seed` when a truncated sample needs to be
-  representative rather than always the same alphabetically-first
-  slice, and `--depth-first` only when deliberately confirming one known
-  subtree rather than surveying broadly.
-- When results should feed into another step (a script, a second agent
-  call), prefer the bounded structured-output mode (once it exists, see
-  item 4) over scraping the text table.
-- On a real large tree with vendored dependencies (`node_modules`,
-  `site-packages`, `.venv`, etc.), use `--exclude` (or `gaz dup
-  --skip-vendored`) to keep noise out of results and free up budget for
-  directories that matter, rather than filtering it out after the fact.
-
-Ranked P1 despite being a "feature idea" because it's pure documentation
-with no code risk, and it immediately raises the value of every command
-gaz already ships — the highest value-to-effort item on this whole list.
-This should live as a real skill file once the project's skill-authoring
-convention is decided — for now, tracked here so the need isn't lost.
-
-### 7. Add an MCP server interface
+### 4. Add an MCP server interface
 **Feature · Priority P3 · Difficulty L**
 
 DESIGN.md's Phase 4 already calls this out: expose the same commands as
@@ -186,12 +111,49 @@ gaz as a tool gets the same "safe, bounded" guarantee that makes it
 useful over a raw `find`/`du` shellout that might hang for the ten
 minutes an agent doesn't have. Deliberately last: it's a large effort in
 its own right (tool schema, server lifecycle, packaging), and it should
-wait until the CLI surface (especially #4 structured output) is more
+wait until the CLI surface (especially #2 structured output) is more
 settled, since the MCP tool schema will want to mirror stable flags
 rather than be redesigned twice.
 
 ## Recently resolved
 
+- **Added a SKILL doc for using gaz effectively.**
+  `skills/gaz-usage/SKILL.md` covers what isn't obvious from `--help`
+  alone: start broad with `tree`/`ext` before narrowing, treat the
+  status line's completeness/re-run guidance as load-bearing, know which
+  budgets are on by default (`--max-seconds` only) versus opt-in
+  (`--max-entries`), use `--exclude`/`--skip-vendored` to keep noise out
+  of results and free up budget, use `--shuffle`/`--seed` for
+  representative sampling, and read `gaz stale`'s `(?)` epoch-mtime
+  flag correctly. Docs-only, no code risk; no automated test, but
+  reviewed against the original TODO checklist item-by-item for
+  coverage.
+- **`gaz stale` reported timestamp-reset artifacts indistinguishably
+  from genuinely old files.** Files with `st_mtime` reset to (or near)
+  the Unix epoch by some other tool — a cache, archive, or sync tool —
+  read as "gaz is wrong" rather than "this file's timestamp is
+  suspicious." `report.is_suspicious_mtime()` flags any mtime within a
+  week of epoch; `gaz stale` appends `(?)` to that row's age and prints
+  a one-line summary count when any are found. Tested in
+  `tests/test_report.py` (boundary values around the epoch window) and
+  `tests/test_cli_stale.py` (a flagged epoch-reset file next to a
+  genuinely old file, and the no-false-positive case with nothing
+  suspicious present).
+- **`gaz find --pattern` failed with a generic "no such option" instead
+  of pointing at the correct positional form.** `find` intentionally
+  takes `PATTERN` positionally (it's the command's one required
+  argument, not an optional filter layered on a walk — documented in
+  DESIGN.md's decision table), unlike `tree`/`ext`/`stale`'s
+  `--pattern` option, which made `gaz find --pattern ...` a natural but
+  wrong guess. Making `PATTERN` accept both an alias option and a
+  positional turned out to be genuinely ambiguous with click (a
+  positional `PATH` argument after `--pattern VALUE` gets bound to the
+  wrong slot), so the fix is a `FindCommand(click.Command)` subclass
+  that intercepts the literal `--pattern` token and raises a `find`-
+  specific `UsageError` naming the correct form, while every other
+  unknown option still gets click's normal error. Tested in
+  `tests/test_cli_filters.py` (the `--pattern` error message, and that
+  positional `PATTERN` still works).
 - **No --exclude / path-ignore flag; gaz dup couldn't separate real
   duplicates from vendored noise.** `walk()` now accepts `exclude: tuple[
   str, ...]` — glob patterns matched against a directory's basename — and

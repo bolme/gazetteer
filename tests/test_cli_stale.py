@@ -55,3 +55,32 @@ def test_stale_combines_with_ext_filter(tmp_path):
     assert result.exit_code == 0
     assert "old.jpg" in result.output
     assert "old.txt" not in result.output
+
+
+def test_stale_flags_epoch_reset_mtime(tmp_path):
+    epoch_file = tmp_path / "epoch.txt"
+    epoch_file.write_text("x")
+    os.utime(epoch_file, (0, 0))
+    _touch_with_age(tmp_path / "genuinely_old.txt", age_seconds=200 * 86400)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["stale", str(tmp_path), "--older-than", "90d"])
+
+    assert result.exit_code == 0
+    lines = result.output.splitlines()
+    epoch_line = next(line for line in lines if "epoch.txt" in line)
+    old_line = next(line for line in lines if "genuinely_old.txt" in line)
+    assert "(?)" in epoch_line
+    assert "(?)" not in old_line
+    assert "1 file(s) have a timestamp within a week of the Unix epoch" in result.output
+
+
+def test_stale_no_epoch_note_when_nothing_suspicious(tmp_path):
+    _touch_with_age(tmp_path / "old.txt", age_seconds=200 * 86400)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["stale", str(tmp_path), "--older-than", "90d"])
+
+    assert result.exit_code == 0
+    assert "Unix epoch" not in result.output
+    assert "(?)" not in result.output

@@ -3,6 +3,7 @@ import pytest
 from gazetteer.report import (
     human_duration,
     human_size,
+    is_suspicious_mtime,
     parse_duration,
     parse_size,
     parse_size_filter,
@@ -193,6 +194,23 @@ def test_human_duration_boundaries(seconds, expected):
 
 def test_human_duration_negative_is_treated_as_magnitude():
     assert human_duration(-30) == "30s"
+
+
+@pytest.mark.parametrize(
+    "mtime,expected",
+    [
+        (0, True),
+        (1, True),
+        (86400, True),  # 1 day after epoch
+        (7 * 86400, True),  # exactly at the window boundary
+        (-7 * 86400, True),  # negative mtimes are possible (pre-1970)
+        (7 * 86400 + 1, False),
+        (365 * 86400, False),  # ~1971, clearly not a reset artifact
+        (1_700_000_000, False),  # a normal, recent real timestamp
+    ],
+)
+def test_is_suspicious_mtime(mtime, expected):
+    assert is_suspicious_mtime(mtime) == expected
 
 
 def test_render_table_empty_rows_still_shows_header():

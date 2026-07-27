@@ -97,6 +97,27 @@ def human_duration(seconds: float) -> str:
     return f"{seconds / (365 * 86400):.1f}y"
 
 
+# Threshold for is_suspicious_mtime: within a week of the Unix epoch. Wide
+# enough to catch "reset to exactly 0" and the handful of nearby values
+# some tools use (e.g. 1 for FAT's "no timestamp"), narrow enough that a
+# genuinely ancient real file (uncommon, but not impossible on old media)
+# isn't misflagged.
+_EPOCH_SUSPECT_WINDOW = 7 * 86400
+
+
+def is_suspicious_mtime(mtime: float) -> bool:
+    """True if `mtime` looks like a reset artifact rather than a real file age.
+
+    `gaz stale` reports whatever st_mtime the OS gives it — that's correct
+    by definition, not a bug — but a timestamp reset to (or near) the Unix
+    epoch by some other tool (common with certain caches, archives, or sync
+    tools) is indistinguishable from a genuinely decades-old file unless
+    it's called out, and gaz presenting it silently reads as "gaz is
+    wrong" rather than "this file's timestamp is wrong."
+    """
+    return abs(mtime) <= _EPOCH_SUSPECT_WINDOW
+
+
 def limit_rows(rows: list, max_rows: int) -> list:
     """Truncate `rows` to `max_rows`, or return every row when max_rows == 0.
 

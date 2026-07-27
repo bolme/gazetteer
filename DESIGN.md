@@ -42,6 +42,7 @@ never arrives. This is the whole product. Do not add a feature that can run unbo
 | Permission errors | Skip, count, report total at the end | One unreadable directory should not kill a 4-hour scan |
 | Output | Plain aligned text by default, `--json` for machines | Plain text is compact in LLM context; `rich` markup is not |
 | Exit code | Always `0` on a successful run, including partial ones | Partial is a normal outcome, not an error. Status goes in the output. |
+| `find`'s PATTERN | Positional argument, not `--pattern` (unlike `tree`/`ext`/`stale`) | It's `find`'s one required argument, not an optional filter layered on top of a walk — a positional signals that. A user coming from `--pattern` on another command who types `gaz find --pattern ...` anyway gets a `find`-specific error pointing at the correct form (`FindCommand` in `cli.py`), rather than growing a second, redundant way to spell the same thing. |
 
 ## Traversal order
 
