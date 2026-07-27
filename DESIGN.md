@@ -140,6 +140,52 @@ Rules for the status line:
 - Report skipped/unreadable paths as a count, not a list.
 - Say where the data came from — a live walk or a cached scan, and how old it is.
 
+### Structured output (--json)
+
+Every command accepts `--json` (in `filters.limit_options`, so it's uniform
+across all six) as an alternative to the plain-text table + status line —
+not an addition to it, and not a firehose: `--json` still respects
+`--max-rows`, so a truncated table and a truncated JSON `rows` array show
+the same number of rows for the same flags. The point is letting a result
+feed into `jq`/`xargs`/another agent without re-parsing aligned text, while
+keeping the exact same "don't treat a partial result as exhaustive"
+guarantee the text status line gives a human.
+
+One shared envelope (`report.json_output`), one command-specific `rows`
+shape and `total` dict per command:
+
+```json
+{
+  "rows": [ {"...": "command-specific keys, see below"} ],
+  "complete": true,
+  "stop_reason": null,
+  "n_dirs": 1204,
+  "n_files": 412003,
+  "n_errors": 0,
+  "elapsed": 8.2,
+  "total": { "...": "command-specific summary" }
+}
+```
+
+`complete`/`stop_reason`/`n_dirs`/`n_files`/`n_errors`/`elapsed` mirror
+`WalkResult` directly — the same fields the text status line is built
+from — so a consumer never has to parse a natural-language sentence to
+know whether a result is partial. `dup` overrides `complete` to also
+fold in its second (hashing) pass, matching `total_label`'s `complete=`
+parameter.
+
+Row shapes (raw numeric values, not human-formatted strings — that
+formatting is what `--json` exists to skip):
+
+| Command | Row keys | `total` keys |
+|---|---|---|
+| `ext` | `ext, count, total_size, median_size` | `files, bytes, filtered` |
+| `tree` | `dir, n_files, total_size` | `dirs, files, bytes, filtered, recursive` |
+| `find` | `path, type, size` | `matches` |
+| `stale` | `path, age_seconds, size, suspicious_mtime` | `files, bytes, older_than, filtered, n_suspicious_mtime` |
+| `empty` | `dir` | `empty_dirs, unvisited_dirs` |
+| `dup` | `path, copies, size_each, reclaimable` | `duplicate_sets, reclaimable_bytes, hash_complete, hash_stop_reason, n_hashed` |
+
 ## Cache
 
 Repeat structural questions about the same tree are the common case, and re-walking

@@ -72,6 +72,7 @@ def ext(
     max_rows: int,
     max_depth: int | None,
     exclude: tuple[str, ...],
+    json_output: bool,
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -107,6 +108,24 @@ def ext(
         rows.append((extension, len(sizes), total, median))
     rows.sort(key=lambda r: r[2], reverse=True)
 
+    matched_files = sum(len(sizes) for sizes in sizes_by_ext.values())
+    matched_bytes = sum(sum(sizes) for sizes in sizes_by_ext.values())
+    is_filtered = bool(extensions or patterns or size_filters)
+
+    if json_output:
+        json_rows = [
+            {"ext": extension, "count": count, "total_size": total, "median_size": median}
+            for extension, count, total, median in report.limit_rows(rows, max_rows)
+        ]
+        click.echo(
+            report.json_output(
+                result,
+                json_rows,
+                total={"files": matched_files, "bytes": matched_bytes, "filtered": is_filtered},
+            )
+        )
+        return
+
     truncated_rows = [
         (extension, count, report.human_size(total), report.human_size(median))
         for extension, count, total, median in report.limit_rows(rows, max_rows)
@@ -114,9 +133,6 @@ def ext(
     click.echo(report.render_table(truncated_rows, ("ext", "count", "total_size", "median_size")))
     click.echo()
 
-    matched_files = sum(len(sizes) for sizes in sizes_by_ext.values())
-    matched_bytes = sum(sum(sizes) for sizes in sizes_by_ext.values())
-    is_filtered = bool(extensions or patterns or size_filters)
     click.echo(
         f"{report.total_label(result, filtered=is_filtered)}: "
         f"{matched_files:,} files, {report.human_size(matched_bytes)}"
@@ -126,16 +142,28 @@ def ext(
 
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option(
+    "--recursive",
+    is_flag=True,
+    help=(
+        "Roll up each directory's totals to include its full subtree, not "
+        "just direct children (like `du -d1` rather than direct-children-only). "
+        "Still bounded by the same walk budgets — no extra filesystem cost, "
+        "just a different aggregation of data the walk already collected."
+    ),
+)
 @limit_options
 @traversal_options
 @filter_options
 def tree(
     path: str,
+    recursive: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
     max_depth: int | None,
     exclude: tuple[str, ...],
+    json_output: bool,
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -163,8 +191,50 @@ def tree(
             continue
         stats[entry.parent].append(entry.size)
 
-    rows = [(dir_path, len(sizes), sum(sizes)) for dir_path, sizes in stats.items()]
+    if recursive:
+        parent_of = {e.path: e.parent for e in result.entries if e.is_dir}
+        root = os.path.abspath(path)
+        n_files_by_dir: dict[str, int] = defaultdict(int)
+        bytes_by_dir: dict[str, int] = defaultdict(int)
+        for dir_path, sizes in stats.items():
+            current = dir_path
+            while True:
+                n_files_by_dir[current] += len(sizes)
+                bytes_by_dir[current] += sum(sizes)
+                if current == root:
+                    break
+                next_dir = parent_of.get(current)
+                if next_dir is None:
+                    break
+                current = next_dir
+        rows = [(d, n_files_by_dir[d], bytes_by_dir[d]) for d in n_files_by_dir]
+    else:
+        rows = [(dir_path, len(sizes), sum(sizes)) for dir_path, sizes in stats.items()]
     rows.sort(key=lambda r: r[2], reverse=True)
+
+    matched_files = sum(len(sizes) for sizes in stats.values())
+    matched_bytes = sum(sum(sizes) for sizes in stats.values())
+    is_filtered = bool(extensions or patterns or size_filters)
+
+    if json_output:
+        json_rows = [
+            {"dir": dir_path, "n_files": n_files, "total_size": total}
+            for dir_path, n_files, total in report.limit_rows(rows, max_rows)
+        ]
+        click.echo(
+            report.json_output(
+                result,
+                json_rows,
+                total={
+                    "dirs": result.n_dirs,
+                    "files": matched_files,
+                    "bytes": matched_bytes,
+                    "filtered": is_filtered,
+                    "recursive": recursive,
+                },
+            )
+        )
+        return
 
     truncated_rows = [
         (dir_path, n_files, report.human_size(total))
@@ -173,9 +243,6 @@ def tree(
     click.echo(report.render_table(truncated_rows, ("dir", "n_files", "total_size")))
     click.echo()
 
-    matched_files = sum(len(sizes) for sizes in stats.values())
-    matched_bytes = sum(sum(sizes) for sizes in stats.values())
-    is_filtered = bool(extensions or patterns or size_filters)
     dirs_label = "dirs walked" if is_filtered else "dirs"
     click.echo(
         f"{report.total_label(result, filtered=is_filtered)}: "
@@ -211,6 +278,7 @@ def find(
     max_rows: int,
     max_depth: int | None,
     exclude: tuple[str, ...],
+    json_output: bool,
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -234,6 +302,14 @@ def find(
         if fnmatch.fnmatch(e.name, pattern) and matches_filters(e, extensions, (), size_filters)
     ]
     truncated = report.limit_rows(matches, max_rows)
+
+    if json_output:
+        json_rows = [
+            {"path": m.path, "type": "dir" if m.is_dir else "file", "size": m.size}
+            for m in truncated
+        ]
+        click.echo(report.json_output(result, json_rows, total={"matches": len(matches)}))
+        return
 
     rows = [(m.path, "dir" if m.is_dir else "file", report.human_size(m.size)) for m in truncated]
     click.echo(report.render_table(rows, ("path", "type", "size")))
@@ -261,6 +337,7 @@ def stale(
     max_rows: int,
     max_depth: int | None,
     exclude: tuple[str, ...],
+    json_output: bool,
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -296,6 +373,35 @@ def stale(
     stale_entries.sort(key=lambda e: e.mtime)
 
     truncated = report.limit_rows(stale_entries, max_rows)
+    total_bytes = sum(e.size for e in stale_entries)
+    is_filtered = bool(extensions or patterns or size_filters)
+    n_suspicious = sum(1 for e in stale_entries if report.is_suspicious_mtime(e.mtime))
+
+    if json_output:
+        json_rows = [
+            {
+                "path": e.path,
+                "age_seconds": now - e.mtime,
+                "size": e.size,
+                "suspicious_mtime": report.is_suspicious_mtime(e.mtime),
+            }
+            for e in truncated
+        ]
+        click.echo(
+            report.json_output(
+                result,
+                json_rows,
+                total={
+                    "files": len(stale_entries),
+                    "bytes": total_bytes,
+                    "older_than": older_than,
+                    "filtered": is_filtered,
+                    "n_suspicious_mtime": n_suspicious,
+                },
+            )
+        )
+        return
+
     rows = [
         (
             e.path,
@@ -308,15 +414,12 @@ def stale(
     click.echo(report.render_table(rows, ("path", "age", "size")))
     click.echo()
 
-    total_bytes = sum(e.size for e in stale_entries)
-    is_filtered = bool(extensions or patterns or size_filters)
     click.echo(
         f"{report.total_label(result, filtered=is_filtered)}: "
         f"{len(stale_entries):,} files older than {older_than}, "
         f"{report.human_size(total_bytes)}"
     )
 
-    n_suspicious = sum(1 for e in stale_entries if report.is_suspicious_mtime(e.mtime))
     if n_suspicious:
         click.echo(
             f"(?) {n_suspicious:,} file(s) have a timestamp within a week of "
@@ -338,6 +441,7 @@ def empty(
     max_rows: int,
     max_depth: int | None,
     exclude: tuple[str, ...],
+    json_output: bool,
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -399,6 +503,20 @@ def empty(
     unvisited_dirs = sorted((all_dirs - non_empty_dirs) & unknown_dirs)
     truncated = report.limit_rows(empty_dirs, max_rows)
 
+    if json_output:
+        json_rows = [{"dir": d} for d in truncated]
+        click.echo(
+            report.json_output(
+                result,
+                json_rows,
+                total={
+                    "empty_dirs": len(empty_dirs),
+                    "unvisited_dirs": len(unvisited_dirs),
+                },
+            )
+        )
+        return
+
     rows = [(d,) for d in truncated]
     click.echo(report.render_table(rows, ("dir",)))
     click.echo()
@@ -453,6 +571,7 @@ def dup(
     max_rows: int,
     max_depth: int | None,
     exclude: tuple[str, ...],
+    json_output: bool,
     depth_first: bool,
     shuffle: bool,
     seed: int | None,
@@ -507,6 +626,33 @@ def dup(
 
     dup_groups = [group for group in by_hash.values() if len(group) > 1]
     dup_groups.sort(key=lambda group: group[0].size * len(group), reverse=True)
+    total_reclaimable = sum(group[0].size * (len(group) - 1) for group in dup_groups)
+
+    if json_output:
+        json_rows = [
+            {
+                "path": group[0].path,
+                "copies": len(group),
+                "size_each": group[0].size,
+                "reclaimable": group[0].size * (len(group) - 1),
+            }
+            for group in report.limit_rows(dup_groups, max_rows)
+        ]
+        click.echo(
+            report.json_output(
+                result,
+                json_rows,
+                complete=result.complete and hash_complete,
+                total={
+                    "duplicate_sets": len(dup_groups),
+                    "reclaimable_bytes": total_reclaimable,
+                    "hash_complete": hash_complete,
+                    "hash_stop_reason": hash_stop_reason,
+                    "n_hashed": n_hashed,
+                },
+            )
+        )
+        return
 
     rows = []
     for group in report.limit_rows(dup_groups, max_rows):
@@ -521,7 +667,6 @@ def dup(
     click.echo(report.render_table(rows, ("path (first copy)", "copies", "size_each", "reclaimable")))
     click.echo()
 
-    total_reclaimable = sum(group[0].size * (len(group) - 1) for group in dup_groups)
     if not result.complete:
         incomplete_reason = "walk stopped early"
     else:

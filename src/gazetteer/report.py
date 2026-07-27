@@ -6,6 +6,7 @@ natural-language status describing whether the result is complete.
 
 from __future__ import annotations
 
+import json
 import re
 
 from gazetteer.walk import WalkResult
@@ -220,3 +221,39 @@ def status_line(result: WalkResult, *, max_seconds: float, max_entries: int = 0)
         line += f" ({result.n_errors:,} unreadable paths skipped.)"
 
     return line
+
+
+def json_output(
+    result: WalkResult,
+    rows: list[dict],
+    *,
+    total: dict,
+    complete: bool | None = None,
+) -> str:
+    """Bounded structured-output envelope, shared by every command's --json.
+
+    Same completeness contract as the plain-text output — `rows` is
+    already truncated by the caller via `limit_rows` (--max-rows applies
+    identically either way, so piping into `jq`/`xargs` can't silently
+    see more than the terminal would), and `complete`/`stop_reason` carry
+    the same "don't treat a partial result as exhaustive" signal that the
+    text status line gives a human. `total` is command-specific (e.g.
+    ext's {"files": N, "bytes": N}) since each command aggregates
+    differently; `complete` defaults to the walk's own completeness but
+    can be overridden for a command with a second budgeted pass (like
+    dup's hashing), matching `total_label`'s `complete=` parameter.
+    """
+    is_complete = result.complete if complete is None else complete
+    return json.dumps(
+        {
+            "rows": rows,
+            "complete": is_complete,
+            "stop_reason": result.stop_reason,
+            "n_dirs": result.n_dirs,
+            "n_files": result.n_files,
+            "n_errors": result.n_errors,
+            "elapsed": result.elapsed,
+            "total": total,
+        },
+        indent=2,
+    )

@@ -60,8 +60,9 @@ flags (`--max-seconds`, `--max-entries`, `--max-rows`, `--max-depth`), the
 traversal-order flags (`--depth-first`, `--shuffle`, `--seed`), a repeatable
 `--exclude PATTERN` to prune noisy subtrees (glob against a directory's
 basename, e.g. `--exclude node_modules`, `--exclude '.*'` — pruned before
-descent, so it also frees up budget rather than just hiding output), and
-most accept `--ext`, `--pattern`, and `--size` to scope what's counted.
+descent, so it also frees up budget rather than just hiding output), `--json`
+for a bounded structured-output alternative to the text table (see below),
+and most accept `--ext`, `--pattern`, and `--size` to scope what's counted.
 
 ### `gaz ext` — file-extension breakdown
 
@@ -81,7 +82,10 @@ Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 
 ### `gaz tree` — per-directory file counts and sizes
 
-Depth-limited structure with a running total, sorted by size.
+Depth-limited structure with a running total, sorted by size. Each row is
+that directory's *direct* children by default; add `--recursive` to roll
+up each row's total to include its whole subtree instead (like `du -d1`),
+using the same walk data — no extra filesystem cost.
 
 ```
 $ gaz tree /data/dataset --max-depth 2
@@ -243,8 +247,30 @@ philosophy), but a file `preview`/`convert` genuinely cannot handle at
 all — no converter installed, unparseable input — is a real failure and
 exits non-zero with a message naming exactly what's missing.
 
-See [DESIGN.md](DESIGN.md) for the full design rationale, and
-[AGENTS.md](AGENTS.md) if you're an AI agent working in this repo.
+Add `--json` for the same information as structured output instead of a
+text table — still bounded by `--max-rows`, still carries `complete`/
+`stop_reason` rather than a sentence you'd have to parse:
+
+```
+$ gaz ext /data/dataset --json --max-rows 2
+{
+  "rows": [
+    {"ext": ".jpg", "count": 482123, "total_size": 127165956096, "median_size": 246989},
+    {"ext": ".xml", "count": 482123, "total_size": 3328599654, "median_size": 6758}
+  ],
+  "complete": true,
+  "stop_reason": null,
+  "n_dirs": 1204,
+  "n_files": 964012,
+  "n_errors": 0,
+  "elapsed": 8.2,
+  "total": {"files": 964012, "bytes": 130508377170, "filtered": false}
+}
+```
+
+See [DESIGN.md](DESIGN.md) for the full design rationale (including the
+per-command `--json` row/total schema), and [AGENTS.md](AGENTS.md) if
+you're an AI agent working in this repo.
 
 ## Traversal order
 

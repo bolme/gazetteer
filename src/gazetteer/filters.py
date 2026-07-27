@@ -51,6 +51,17 @@ _LIMIT_OPTIONS = [
             "--max-entries, freeing budget for directories that matter."
         ),
     ),
+    click.option(
+        "--json",
+        "json_output",
+        is_flag=True,
+        help=(
+            "Print a bounded JSON object instead of a text table — same "
+            "--max-rows cap, same completeness metadata (complete, "
+            "stop_reason, counts) as the text status line, for piping into "
+            "jq/xargs/another agent without re-parsing the table."
+        ),
+    ),
 ]
 
 _TRAVERSAL_OPTIONS = [

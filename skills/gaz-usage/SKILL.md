@@ -82,6 +82,25 @@ timestamp reset by some other tool (a cache, archive, or sync tool), not a
 genuinely decades-old file — don't report it to the user as "this file
 hasn't been touched since 1970" without that caveat.
 
+## Feeding results into another step
+
+When you're going to parse the output programmatically (pipe into `jq`,
+build a follow-up call, hand rows to another agent step) use `--json`
+instead of scraping the aligned text table — same `--max-rows` cap, same
+completeness signal as fields (`complete`, `stop_reason`) rather than a
+sentence you'd have to pattern-match. Still check `complete` before
+treating `rows` as the full answer; `--json` doesn't relax the
+"truncated is not exhaustive" rule, it just makes the truncation
+programmatically checkable.
+
+## `gaz tree --recursive` for subtree totals
+
+Default `gaz tree` rows are each directory's *direct* children only — a
+parent directory with a huge subtree can look small if its files all live
+several levels down. Add `--recursive` when you want each row to reflect
+its whole subtree (like `du -d1`), e.g. to find which top-level directory
+is actually consuming the most space.
+
 ## Command cheat sheet
 
 | Command | Question it answers |

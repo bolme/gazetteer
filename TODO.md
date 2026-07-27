@@ -35,57 +35,22 @@ easy to under-value against feature requests like "add --json":
 
 ## Suggested order of work
 
-1. gaz tree: recursive/rollup size mode — Feature, P2, M
-2. Bounded machine-readable output format — Feature, P2, L
-3. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S (built on #2)
-4. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
+1. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S
+2. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
 
-Rationale for the order: the output-format and MCP items are pushed to
-the end because they're the largest, most design-heavy changes, and the
-MCP surface specifically should mirror whatever flags exist by then
-rather than be designed twice. The dry-run item depends on structured
-output landing first.
+Rationale for the order: the dry-run item is smaller and no longer
+blocked (structured output landed), so it comes before MCP, which is
+pushed to the end because it's the largest, most design-heavy change and
+should mirror whatever flags exist by then rather than be redesigned
+twice.
 
-Eight items that were previously on this list have been fixed and
+Ten items that were previously on this list have been fixed and
 verified — see the "Recently resolved" section at the bottom for what
 changed and how it was tested.
 
 ## Items, in suggested order
 
-### 1. gaz tree has no recursive/rollup size mode
-**Feature · Priority P2 · Difficulty M**
-
-`gaz tree` reports each directory's *direct* children only — it doesn't
-aggregate subtree totals the way `du -d1` (or deeper) does. Since the
-walker already visits every file under the budget, this is aggregation
-work gaz already has the data for; today a user has to shell out to
-`du` separately for any directory that looks interesting. Candidate:
-a `--recursive`/`--depth` interaction (or a new rollup mode) that sums
-each directory's full subtree, not just its immediate contents — still
-bounded by the same walk budgets, so this doesn't compromise the
-speed/hang-prevention guarantee that's the point of gaz over plain `du`.
-Medium effort: the raw per-file data is already collected, but rolling
-it up per-ancestor-directory needs a real aggregation pass and a
-decision about how deep results should nest in the table output.
-
-### 2. No machine-readable output format
-**Feature · Priority P2 · Difficulty L**
-
-All output today is the plain aligned text table + status line. That's
-intentionally compact for a human terminal or an LLM's context window
-(see DESIGN.md's Output decision) — the point isn't to add a firehose
-`--json` that dumps every row, since that reintroduces the exact
-information-overload problem gaz exists to avoid. But a **bounded**
-structured-output option (respecting the same `--max-rows` cap, one
-JSON object per row plus the same completeness metadata gaz already
-tracks) would let results feed into other tooling — `xargs`, a script
-deciding what to delete, another agent — without giving up the budget
-guarantees. Large because it needs a real design pass on schema (one
-consistent shape across six different commands' row types plus the
-completeness metadata) before any code — this is the kind of change
-that should get its own design doc section, not just a flag.
-
-### 3. No dry-run / preview-before-acting workflow for gaz dup
+### 1. No dry-run / preview-before-acting workflow for gaz dup
 **Feature · Priority P3 · Difficulty S**
 
 `gaz dup` (and any future command that suggests deletions) has no way to
@@ -94,12 +59,14 @@ outside the tool — today that means manually copying paths out of the
 table. This is lower priority than the items above since gaz doesn't
 delete anything itself (it only reports), but worth considering a
 `--script` or `--emit-paths` style output tailored to feeding into a
-review step or a deletion command. Small once #2 (structured output)
-exists to build it on — mostly a thin rendering of data gaz already
-computes — but blocked until then, since duplicating a one-off output
-format now would just be replaced later.
+review step or a deletion command. `gaz dup --json` now exists and
+already gives every field a script would need (`path`, `copies`,
+`size_each`, `reclaimable` per row) — this item is really about whether
+a dedicated dry-run UX adds anything `--json | jq` doesn't already cover
+for a script/second-agent consumer, or whether it's only worth it for
+a human-facing preview mode.
 
-### 4. Add an MCP server interface
+### 2. Add an MCP server interface
 **Feature · Priority P3 · Difficulty L**
 
 DESIGN.md's Phase 4 already calls this out: expose the same commands as
@@ -110,13 +77,44 @@ fit for agentic use, more so than the CLI itself, since an agent calling
 gaz as a tool gets the same "safe, bounded" guarantee that makes it
 useful over a raw `find`/`du` shellout that might hang for the ten
 minutes an agent doesn't have. Deliberately last: it's a large effort in
-its own right (tool schema, server lifecycle, packaging), and it should
-wait until the CLI surface (especially #2 structured output) is more
-settled, since the MCP tool schema will want to mirror stable flags
-rather than be redesigned twice.
+its own right (tool schema, server lifecycle, packaging). The CLI
+surface (`--exclude`, `--json`, `--recursive`) is now settled enough
+that the MCP tool schema can mirror it directly rather than being
+designed twice.
 
 ## Recently resolved
 
+- **No bounded machine-readable output format.** Every command now
+  accepts `--json` (added to `filters.limit_options`, so it's uniform
+  across all six) as an alternative to the text table, not an addition
+  to it — still respects `--max-rows`, so a truncated JSON `rows` array
+  shows the same number of rows the text table would. One shared
+  envelope (`report.json_output`): `rows`, `complete`, `stop_reason`,
+  `n_dirs`, `n_files`, `n_errors`, `elapsed`, `total` — mirroring
+  `WalkResult` directly rather than requiring a consumer to parse the
+  natural-language status line. Each command has its own row shape
+  (raw numeric values, no `human_size`/`human_duration` formatting) and
+  `total` dict; `dup` folds its second hashing pass into `complete` via
+  the same override pattern as `total_label`. Schema documented in
+  DESIGN.md's new "Structured output (--json)" section. Tested in
+  `tests/test_report.py` (`json_output` directly: valid JSON, truncation
+  reflected, `complete` override, error counts) and
+  `tests/test_cli_json.py` (one happy-path test per command, `--max-rows`
+  respected, a truncated walk's `complete`/`stop_reason` surfacing
+  correctly); manually verified all six commands produce parseable JSON
+  with `python3 -m json.tool`.
+- **gaz tree had no recursive/rollup size mode.** Added `--recursive`:
+  each row's `n_files`/`total_size` now includes its full subtree
+  (walking up from every directory that directly contains matched files
+  to every ancestor, using the same `parent_of` map pattern `gaz empty`
+  already used) instead of just direct children, matching `du -d1`
+  rather than `ls`. Still bounded by the same walk budgets — pure
+  aggregation over data the walk already collected, no extra filesystem
+  cost. Default (no flag) behavior is unchanged. Tested in the new
+  `tests/test_cli_tree.py` (direct-children-only default, recursive
+  rollup at multiple depths, interaction with `--ext` filtering, and
+  that the Total line is unaffected); manually verified against a
+  nested fixture tree.
 - **Added a SKILL doc for using gaz effectively.**
   `skills/gaz-usage/SKILL.md` covers what isn't obvious from `--help`
   alone: start broad with `tree`/`ext` before narrowing, treat the

@@ -1,9 +1,12 @@
 import pytest
 
+import json
+
 from gazetteer.report import (
     human_duration,
     human_size,
     is_suspicious_mtime,
+    json_output,
     parse_duration,
     parse_size,
     parse_size_filter,
@@ -371,3 +374,43 @@ def test_total_label_custom_incomplete_reason():
 
     assert "hashing stopped early" in label
     assert "walk stopped early" not in label
+
+
+def test_json_output_is_valid_json_with_expected_keys():
+    result = _walk_result(n_dirs=2, n_files=3, elapsed=1.5, complete=True)
+    rows = [{"ext": ".txt", "count": 3}]
+    output = json_output(result, rows, total={"files": 3})
+
+    parsed = json.loads(output)
+    assert parsed["rows"] == rows
+    assert parsed["complete"] is True
+    assert parsed["stop_reason"] is None
+    assert parsed["n_dirs"] == 2
+    assert parsed["n_files"] == 3
+    assert parsed["elapsed"] == 1.5
+    assert parsed["total"] == {"files": 3}
+
+
+def test_json_output_reflects_truncation():
+    result = _walk_result(complete=False, stop_reason="30.0s limit", n_dirs=1, n_files=2)
+    parsed = json.loads(json_output(result, [], total={}))
+
+    assert parsed["complete"] is False
+    assert parsed["stop_reason"] == "30.0s limit"
+
+
+def test_json_output_complete_override_takes_precedence():
+    # Mirrors total_label's complete= override for a command with a second
+    # budgeted pass (e.g. dup's hashing) that can be incomplete even when
+    # the walk itself finished.
+    result = _walk_result(complete=True)
+    parsed = json.loads(json_output(result, [], total={}, complete=False))
+
+    assert parsed["complete"] is False
+
+
+def test_json_output_reports_errors():
+    result = _walk_result(n_errors=5)
+    parsed = json.loads(json_output(result, [], total={}))
+
+    assert parsed["n_errors"] == 5
