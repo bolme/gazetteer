@@ -17,6 +17,7 @@ ALL_WALK_COMMANDS = [
     ["stale"],
     ["empty"],
     ["dup"],
+    ["largest"],
 ]
 
 

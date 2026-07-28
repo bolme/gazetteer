@@ -110,6 +110,19 @@ A `*` after a directory name (`Documents/*`) means the walk stopped
 before that subtree was fully scanned — its counts and sizes are floors,
 not totals. Raise `--max-seconds` if you need the real figure.
 
+## `gaz list` vs `gaz largest`
+
+Both answer "what's big," but not the same question. `gaz list` ranks a
+directory's *immediate children*, with each subdirectory carrying its
+whole subtree's total — use it to decide which branch to descend into.
+`gaz largest` ranks *individual files* anywhere beneath, which is what you
+want once the question is "what single files should I delete or archive."
+`--max-rows` is the N.
+
+On a very large tree, `gaz largest --min-size 100M` skips small files
+before the sort. Anything under the bound can't place in the top N anyway,
+so it costs nothing and saves real work.
+
 ## Sizes are disk usage, not file length
 
 Size columns and totals report allocated blocks, matching `du` — not the
@@ -157,6 +170,7 @@ use before concluding anything is missing.
 | `gaz ext` | What kinds of files are here, and how much space does each kind use? |
 | `gaz list` | What's in this directory, and how big is each subdirectory's whole subtree? |
 | `gaz find PATTERN` | Where are files matching this specific glob? |
+| `gaz largest` | Which individual files are the biggest, anywhere below here? |
 | `gaz stale` | What hasn't been touched in a while? |
 | `gaz empty` | What directories are dead weight (no files anywhere under them)? |
 | `gaz dup` | Where is space being wasted on duplicate file content? |

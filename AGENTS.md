@@ -49,7 +49,7 @@ DESIGN.md's "Traversal order" section.
 
 ```
 src/gazetteer/
-├── cli.py          # click group + the six tree-walking commands
+├── cli.py          # click group + the seven tree-walking commands
 ├── preview_cli.py  # the preview/convert commands (single-file, no walker)
 ├── walk.py         # the one bounded walker — every tree command routes through this
 ├── filters.py      # shared --max-*/--ext/--pattern/--size options + matches_filters
@@ -70,7 +70,7 @@ tests/              # one test file per source module, plus CLI-level test files
   `human_size`, `human_duration`) live in `report.py`, not scattered inline.
 - Resist splitting a module further until it exceeds ~300 lines. `cli.py`
   is already an exception (714 lines) — see TODO.md before adding another
-  cross-cutting flag to all six commands without addressing it.
+  cross-cutting flag to all seven commands without addressing it.
 
 ## Conventions
 
@@ -115,7 +115,7 @@ tests/              # one test file per source module, plus CLI-level test files
   actually pruning before descent (and not counting against `max_entries`),
   a nonexistent root, and a root that's a file rather than a directory. See
   `tests/test_walk.py`.
-- A new shared flag that threads through all six commands (like `--exclude`
+- A new shared flag that threads through all seven commands (like `--exclude`
   or `--json`) needs at least one CLI-level test combining it with another
   recently-added shared flag, not just tested in isolation per-flag — see
   `tests/test_cli_json.py`'s `--json` + `--exclude`/`--skip-vendored` tests

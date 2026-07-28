@@ -48,20 +48,14 @@ item below should preserve both.
   composing with `--exclude` the way `--skip-vendored` does. Needs the
   accumulated relative path threaded through `walk.py`'s loop, which
   `is_excluded` doesn't currently see.
-- **[Feature, S] No way to answer "what are the N largest files here?"**
-  `gaz list --sort size` answers biggest *direct children* of one
-  directory, not biggest *files* anywhere beneath it — `du -a | sort -rn
-  | head` still has no gaz equivalent, despite every walk already
-  collecting `WalkEntry.size`. Candidate: a `gaz largest [PATH]` command
-  or a `--largest N` mode, sort-and-truncate over `result.entries`.
 - **[Improvement, S] Text-table output doesn't say when `--max-rows`
-  hid rows** — on every command except `gaz list`. `gaz ext --max-rows 3`
-  on a tree with 10 extensions prints 3 rows and a *correct* `Total:`
-  count, but nothing says "3 of 10 shown" — `--json`'s `total` dict lets
-  a script reconstruct this, but the text table gives a human no
-  equivalent cue. Violates the same "never present a partial number as if
-  it were total" principle the walk-truncation status line already
-  follows. `gaz list` now prints `Showing N of M entries.`; port that to
+  hid rows** — on every command except `gaz list` and `gaz largest`.
+  `gaz ext --max-rows 3` on a tree with 10 extensions prints 3 rows and a
+  *correct* `Total:` count, but nothing says "3 of 10 shown" — `--json`'s
+  `total` dict lets a script reconstruct this, but the text table gives a
+  human no equivalent cue. Violates the same "never present a partial
+  number as if it were total" principle the walk-truncation status line
+  already follows. Port `list`/`largest`'s "Showing N of M" line to
   `ext`/`find`/`stale`/`empty`/`dup`.
 
 ### P2
@@ -107,6 +101,9 @@ item below should preserve both.
   mirror a settled CLI surface instead of being designed twice.
 
 ## Recently resolved
+
+- **`gaz largest`**: biggest individual files across a subtree, with
+  `--min-size` and `--apparent`. `--max-rows` doubles as the N.
 
 - **`preview`/`convert` error paths audited**: every converter-library
   call is wrapped, so a corrupt or mislabeled file gives an actionable

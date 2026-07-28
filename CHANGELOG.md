@@ -40,6 +40,12 @@
 
 ### Added
 
+- **`gaz largest [PATH]`** — the biggest individual files anywhere beneath
+  PATH, the `du -a | sort -rn | head` answer that `gaz list` (which ranks a
+  directory's immediate children) doesn't give. `--max-rows` is the N;
+  `--min-size` pre-filters small files on huge trees; `--apparent` ranks by
+  file length instead of disk usage, surfacing sparse files and cloud
+  placeholders.
 - **`gaz preview` shows a metadata banner** — filename, size,
   modified/created dates, and the conversion method — ruled off above the
   converted content, so a preview answers "is this the file I meant, and

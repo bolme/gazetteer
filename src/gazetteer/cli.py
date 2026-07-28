@@ -531,6 +531,141 @@ def find(
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option(
+    "--min-size",
+    "min_size",
+    default=None,
+    help=(
+        "Ignore files smaller than this (e.g. 10M). Cheap pre-filter for "
+        "huge trees — a file below the bound can't be in the top N anyway."
+    ),
+)
+@click.option(
+    "--apparent",
+    is_flag=True,
+    help=(
+        "Rank by apparent size (st_size) instead of disk space used. "
+        "Surfaces sparse files and cloud placeholders, which occupy far "
+        "fewer blocks than their length suggests."
+    ),
+)
+@limit_options
+@traversal_options
+@filter_options
+def largest(
+    path: str,
+    min_size: str | None,
+    apparent: bool,
+    max_seconds: float,
+    max_entries: int,
+    max_rows: int,
+    max_depth: int | None,
+    exclude: tuple[str, ...],
+    json_output: bool,
+    depth_first: bool,
+    shuffle: bool,
+    seed: int | None,
+    extensions: tuple[str, ...],
+    patterns: tuple[str, ...],
+    size_filters: tuple[str, ...],
+) -> None:
+    """The biggest individual files anywhere beneath PATH.
+
+    `gaz list` ranks a directory's immediate children; this ranks single
+    files across the whole subtree — the `du -a | sort -rn | head` answer.
+    `--max-rows` is the N (default 50).
+
+    Sizes are disk space used, so the total is what deleting the listed
+    files would actually reclaim. Pass --apparent to rank by file length
+    instead, which is what surfaces sparse and cloud-placeholder files.
+    """
+    if min_size is not None:
+        try:
+            min_bytes = report.parse_size(min_size)
+        except ValueError as e:
+            raise click.BadParameter(str(e), param_hint="--min-size")
+    else:
+        min_bytes = 0
+
+    result = walk.walk(
+        path,
+        max_seconds=max_seconds,
+        max_entries=max_entries,
+        max_depth=max_depth,
+        exclude=exclude,
+        depth_first=depth_first,
+        shuffle=shuffle,
+        seed=seed,
+    )
+
+    def rank_size(entry: WalkEntry) -> int:
+        return entry.apparent_size if apparent else entry.size
+
+    candidates = [
+        e for e in result.entries
+        if not e.is_dir
+        and rank_size(e) >= min_bytes
+        and matches_filters(e, extensions, patterns, size_filters)
+    ]
+    candidates.sort(key=rank_size, reverse=True)
+
+    shown = report.limit_rows(candidates, max_rows)
+    # Totals describe every candidate, not just the rows printed — the
+    # same "aggregation continues past --max-rows" rule the other
+    # commands follow.
+    matched_bytes = sum(rank_size(e) for e in candidates)
+    shown_bytes = sum(rank_size(e) for e in shown)
+    is_filtered = bool(extensions or patterns or size_filters or min_bytes)
+
+    if json_output:
+        json_rows = [
+            {
+                "path": e.path,
+                "size": e.size,
+                "apparent_size": e.apparent_size,
+                "mtime": e.mtime,
+            }
+            for e in shown
+        ]
+        click.echo(
+            report.json_output(
+                result,
+                json_rows,
+                total={
+                    "files": len(candidates),
+                    "bytes": matched_bytes,
+                    "shown_bytes": shown_bytes,
+                    "filtered": is_filtered,
+                    "ranked_by": "apparent_size" if apparent else "size",
+                },
+            )
+        )
+        return
+
+    rows = [
+        (report.human_size(rank_size(e)), report.human_date(e.mtime), e.path)
+        for e in shown
+    ]
+    # Size first: the whole question is "what's big," and a leading size
+    # column stays scannable however long the paths get.
+    click.echo(report.render_table(rows, ("size", "modified", "path")))
+    click.echo()
+
+    if len(shown) < len(candidates):
+        click.echo(
+            f"Showing the {len(shown):,} largest of {len(candidates):,} files "
+            f"({report.human_size(shown_bytes)} of "
+            f"{report.human_size(matched_bytes)})."
+        )
+    click.echo(
+        f"{report.total_label(result, filtered=is_filtered)}: "
+        f"{len(candidates):,} files, {report.human_size(matched_bytes)}"
+    )
+    click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
+
+
+@main.command()
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option(
     "--older-than",
     "older_than",
     default="90d",

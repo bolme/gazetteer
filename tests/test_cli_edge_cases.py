@@ -9,6 +9,7 @@ ALL_COMMANDS = [
     ["stale"],
     ["empty"],
     ["dup"],
+    ["largest"],
 ]
 
 
@@ -107,11 +108,6 @@ def test_dup_handles_three_way_duplicate_set(tmp_path):
         line for line in result.output.splitlines() if str(tmp_path) in line
     )
     assert "3" in table_line.split()
-    table_line = next(
-        line for line in result.output.splitlines() if str(tmp_path) in line
-    )
-    columns = table_line.split()
-    assert "3" in columns
 
 
 def test_dup_files_with_same_size_but_different_content_are_not_duplicates(tmp_path):

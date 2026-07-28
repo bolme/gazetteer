@@ -46,6 +46,7 @@ never arrives. This is the whole product. Do not add a feature that can run unbo
 | `list`'s depth | Always exactly one level; no `--recursive`, no `--depth` | Each subdirectory row already reports totals for its *whole* subtree, so a nested listing would re-answer at every level what one level answers once. Going deeper is `gaz list <that row>` — a second command invocation, not a second output mode. |
 | `list`'s incomplete rows | `*` after the directory name, once per row | A directory whose subtree wasn't fully scanned has counts that are floors, not totals. Marking the row once (`train/*`) rather than flagging each numeric cell keeps the table readable while still never presenting a partial number as if it were complete. |
 | Size measurement | Allocated blocks (`st_blocks * 512`) for space totals; `st_size` for per-file sizes and `--size` filters | See "Apparent vs. allocated size" below. |
+| `largest` as its own command | Separate from `gaz list --sort size`, not a flag on it | They answer different questions: `list` ranks a directory's *immediate children* (a subdirectory row aggregating its whole subtree), `largest` ranks *individual files* anywhere beneath. Folding the second into the first would mean one command whose rows are sometimes directories-with-subtree-totals and sometimes single files — a mode switch, not a sort order. `--max-rows` doubles as the N, so no separate `-n` was needed. |
 
 ## Traversal order
 
@@ -138,7 +139,7 @@ change rather than an output filter — the point isn't just cleaner
 results, it's freeing up the time/entry budget so it's spent on
 directories that actually matter instead of being burned inside a noisy
 subtree. The walk root itself is never excluded even if its basename
-matches. Available on all six commands via the shared `limit_options`.
+matches. Available on all seven commands via the shared `limit_options`.
 
 `gaz dup --skip-vendored` builds on this: it adds a curated list of
 common package-manager/dependency directory names (`node_modules`,
@@ -218,6 +219,7 @@ formatting is what `--json` exists to skip):
 | `ext` | `ext, count, total_size, median_size` | `files, bytes, filtered` |
 | `list` | `name, path, type, n_files, n_dirs, size, apparent_size, mtime, complete` (`ctime` with `--fields created`) | `dirs, files, bytes, filtered, sort` |
 | `find` | `path, type, size` | `matches` |
+| `largest` | `path, size, apparent_size, mtime` | `files, bytes, shown_bytes, filtered, ranked_by` |
 | `stale` | `path, age_seconds, size, suspicious_mtime` | `files, bytes, older_than, filtered, n_suspicious_mtime` |
 | `empty` | `dir` | `empty_dirs, unvisited_dirs, scanned_dirs` |
 | `dup` | `path, copies, size_each, reclaimable` | `duplicate_sets, reclaimable_bytes, hash_complete, hash_stop_reason, n_hashed` |
@@ -427,7 +429,7 @@ which is a real failure, not a truncation.
 gazetteer/
 ├── pyproject.toml          # [project.scripts] gaz = "gazetteer.cli:main"
 ├── src/gazetteer/
-│   ├── cli.py              # click group + the six tree-walking commands
+│   ├── cli.py              # click group + the seven tree-walking commands
 │   ├── preview_cli.py      # the preview/convert commands (single-file, no walker)
 │   ├── walk.py             # bounded walker — the one core primitive
 │   ├── filters.py          # shared --max-*/--ext/--pattern/--size options

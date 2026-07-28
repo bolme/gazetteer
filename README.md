@@ -133,6 +133,34 @@ path                                type  size
 Scanned 1,204 dirs / 964,012 files in 6.1s. Complete.
 ```
 
+### `gaz largest` — the biggest individual files
+
+`gaz list` ranks a directory's immediate children; `gaz largest` ranks
+single files across the whole subtree — the `du -a | sort -rn | head`
+answer. `--max-rows` is the N (default 50).
+
+```
+$ gaz largest ~ --max-rows 4
+size     modified    path
+-------  ----------  ------------------------------------------------
+27.7 GB  2026-07-25  ./exports/train_v3.tar
+16.8 GB  2026-06-11  ./exports/train_v2.tar
+14.1 GB  2026-03-30  ./checkpoints/epoch_120.pt
+7.1 GB   2026-06-27  ./raw/session_04.mp4
+
+Showing 4 of 964,012 files (7.0 GB of 118.4 GB).
+Total: 964,012 files, 118.4 GB
+Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
+```
+
+`--min-size 10M` skips small files before the sort — a cheap pre-filter on
+a huge tree, since anything under the bound can't place in the top N.
+
+Sizes are disk space used, so the total is what deleting those files would
+actually reclaim. `--apparent` ranks by file length instead, which is what
+surfaces sparse files and cloud placeholders — a VM disk image can be #1
+by apparent size and unremarkable by allocated blocks.
+
 ### `gaz dup` — duplicate files by content hash
 
 Groups candidates by size first (cheap), then hashes only same-size groups
@@ -398,9 +426,9 @@ blocked by PyPI's name policy), typed as `gaz`.
 
 ## Status
 
-v0: the bounded walker plus `ext`, `list`, `find`, `dup`, `stale`, `empty`,
-and the single-file `preview`/`convert` pair. No caching yet — every
-command does a live bounded walk or a live conversion. See
+v0: the bounded walker plus `ext`, `list`, `find`, `largest`, `dup`,
+`stale`, `empty`, and the single-file `preview`/`convert` pair. No caching
+yet — every command does a live bounded walk or a live conversion. See
 [DESIGN.md](DESIGN.md)'s "Later phases" for what's planned (a
 SQLite-backed cache, CV-dataset-aware commands, an MCP server).
 
