@@ -320,7 +320,11 @@ reading. Both share one dispatch function, `convert.convert_to_text()`.
 - **preview**: bounded to a terminal. Converts the file to readable text,
   then shows up to `--max-lines` (default `50`) of it, or the whole file
   with `--full`. Same "bounded, and says so when truncated" contract as
-  every other command.
+  every other command. A one-line header above the content gives the
+  file's name, apparent size, and modified/created dates — orientation the
+  converted text itself can never supply ("is this the file I meant, and
+  is it current?"). It uses apparent size, not allocated blocks, because
+  it describes the file rather than its disk footprint.
 - **convert**: unbounded, writes the full result to `-o OUTPUT`. Binary
   formats only (DOCX/PPTX/XLSX/PDF → MD/TXT/CSV) — JSON/YAML/TOML/XML are
   already text, so `convert` refuses them (`gaz preview` is the right tool)
@@ -333,6 +337,24 @@ naming exactly what's missing. JSON/XML/CSV pretty-printing needs nothing
 beyond stdlib; YAML and TOML-on-3.9/3.10 need `PyYAML`/`tomli` (no stdlib
 option exists for either), so those two are the only "always needed for
 this format to work at all" entries in the extra.
+
+`gaz preview --check-deps` reports that ladder for every format — which
+converter would actually be chosen, or what's missing — without needing a
+file to try it on. It's generated from `_CONVERTER_REQUIREMENTS`, kept
+adjacent to the dispatch it describes so the two can't drift.
+
+**Every failure path returns an `UnsupportedFormat` with an actionable
+message; none leak a library exception.** Each optional library raises its
+own type for a corrupt, empty, or mislabeled file
+(`PackageNotFoundError`, `EmptyFileError`, `BadZipFile`, ...), and letting
+those propagate produced a raw traceback from a library the user may not
+know they have — reading as "gaz crashed" rather than "this file isn't
+what its extension says." `convert._library_errors()` wraps every library
+call site and re-raises with the path, the format, and the underlying
+error. Relatedly, when `pandoc` runs but fails *and* no Python fallback is
+installed, pandoc's stderr is carried into the error rather than being
+replaced by a generic "no converter available" — it's the only real
+explanation of what went wrong.
 
 Neither command takes the tree-walking budget flags (`--max-entries`,
 `--ext`, `--size`, ...) — they operate on one file, not a directory. The
@@ -445,4 +467,9 @@ completeness signal are exactly what an agent needs to avoid acting on partial d
   stays accurate as new formats are added, and gate any test needing a real
   `pandoc`/`pdftotext`/optional library behind a skip so the suite stays
   green without them installed.
+- Test each converter's *corrupt-input* path too, not just its
+  missing-dependency path: feed a file whose extension lies about its
+  contents and assert an `UnsupportedFormat` comes back rather than the
+  library's own exception. These are separate failures with separate
+  fixes, and only the wrapped one is safe to show a user.
 - Prefer deleting code to adding a flag.

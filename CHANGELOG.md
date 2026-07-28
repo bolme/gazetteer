@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **`preview`/`convert` no longer leak library tracebacks on a corrupt or
+  mislabeled file.** A `.docx` that wasn't really a docx, or an empty
+  `.pdf`, produced a raw traceback from python-docx/pypdf — reading as a
+  gaz crash rather than a fact about the file. Every converter library
+  call is now wrapped and re-raised as a clear error naming the file, the
+  converter, and the underlying reason. When `pandoc` runs but fails and
+  no Python fallback is installed, its stderr is now included instead of
+  being replaced by a generic "no converter available."
 - **Sizes now measure disk space actually used, not apparent length.**
   gaz summed `st_size`, which for a sparse file or an un-downloaded
   cloud-sync placeholder can be orders of magnitude larger than the space
@@ -32,6 +40,12 @@
 
 ### Added
 
+- **`gaz preview` shows a metadata header** — filename, size, and
+  modified/created dates — above the converted content, so a preview
+  answers "is this the file I meant, and is it current?" as well as
+  "what's in it."
+- **`gaz preview --check-deps`** reports which converter each format would
+  actually use (or what's missing), without needing a file to try it on.
 - **`gaz list --sort name|size|files|modified|created`** (default `name`)
   with `--reverse`. Directories always sort before files.
 - **`gaz list --fields created|dirs|path`** to add optional columns; a

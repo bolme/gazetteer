@@ -109,3 +109,74 @@ def test_preview_missing_converter_gives_actionable_error(tmp_path, monkeypatch)
     assert result.exit_code != 0
     assert "pandoc" in result.output
     assert "gaz[preview]" in result.output
+
+
+def test_preview_shows_metadata_header_before_content(tmp_path):
+    path = tmp_path / "sample.json"
+    path.write_text('{"a": 1}')
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path)])
+
+    assert result.exit_code == 0
+    lines = result.output.splitlines()
+    # Header is the first line, before any converted content.
+    assert lines[0].startswith("sample.json")
+    assert "modified" in lines[0]
+    assert "created" in lines[0]
+    assert "8 B" in lines[0]
+    # ...and the content still follows it.
+    assert '"a": 1' in result.output
+
+
+def test_preview_header_size_is_apparent_not_allocated(tmp_path):
+    # A 3-byte file occupies a full disk block, but the header describes
+    # the file, not its footprint — so it must say 3 B, not 4.0 KB.
+    path = tmp_path / "tiny.txt"
+    path.write_text("abc")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path)])
+
+    assert result.exit_code == 0
+    assert "3 B" in result.output.splitlines()[0]
+
+
+def test_preview_check_deps_lists_formats():
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", "--check-deps"])
+
+    assert result.exit_code == 0
+    assert "format" in result.output
+    assert "docx" in result.output
+    assert "pdf" in result.output
+    assert "json" in result.output
+
+
+def test_preview_check_deps_needs_no_path():
+    # --check-deps is a diagnostic about the environment, not a file.
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", "--check-deps"])
+
+    assert result.exit_code == 0
+    assert "usable" in result.output
+
+
+def test_preview_without_path_or_check_deps_is_a_usage_error():
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview"])
+
+    assert result.exit_code != 0
+    assert "missing PATH" in result.output
+
+
+def test_preview_corrupt_docx_gives_clean_error_not_traceback(tmp_path):
+    path = tmp_path / "fake.docx"
+    path.write_text("not a docx at all")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path)])
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert "fake.docx" in result.output

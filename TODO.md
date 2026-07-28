@@ -66,17 +66,6 @@ item below should preserve both.
 
 ### P2
 
-- **[Improvement, S] `preview`/`convert` fail unhelpfully when a
-  converter is missing.** DESIGN.md promises a clear "here's what to
-  install" error, but a real run saw a cryptic failure — audit whether
-  every code path (subprocess failure vs. missing binary vs. missing
-  optional lib) actually routes through that message, and add a
-  `--check-deps` diagnostic reporting which converters are available.
-- **[Improvement, S] `gaz preview` shows no file metadata before
-  content.** No filename/size/create/modified/accessed line before the
-  converted text — often as useful as the content itself for quick
-  orientation. Small: a header using the same `human_size`/
-  `human_duration` formatting every other command already uses.
 - **[Improvement, S] Audit converter priority order for
   preview/convert.** The `pandoc` → optional-lib → error ordering in
   DESIGN.md was chosen before real files had been run through it. Worth
@@ -118,6 +107,13 @@ item below should preserve both.
   mirror a settled CLI surface instead of being designed twice.
 
 ## Recently resolved
+
+- **`preview`/`convert` error paths audited**: every converter-library
+  call is wrapped, so a corrupt or mislabeled file gives an actionable
+  error instead of a raw traceback; a failing `pandoc`'s stderr survives
+  into the message. Added **`gaz preview --check-deps`**.
+- **`gaz preview` metadata header**: filename, size, and
+  modified/created dates above the content.
 
 - Closed **dry-run/preview-before-acting for `gaz dup`** as out of
   scope — see the read-only note above; `--json` is the integration

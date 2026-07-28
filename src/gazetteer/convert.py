@@ -25,6 +25,7 @@ import subprocess
 import sys
 import xml.dom.minidom
 import xml.parsers.expat
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 # gaz convert is binary -> text only (see DESIGN.md). These formats are
@@ -78,6 +79,66 @@ class ConvertResult:
 
 class UnsupportedFormat(Exception):
     """No converter available for this input. Message names what's missing."""
+
+
+# What each format needs, in the order convert_to_text() actually tries
+# them. Kept adjacent to the dispatch it describes so the two don't drift:
+# a new converter here without a new branch there (or vice versa) is a bug
+# --check-deps would report wrongly.
+#   (format, [(kind, name), ...], note)
+# kind is "binary" (looked up on $PATH) or "module" (importable).
+_CONVERTER_REQUIREMENTS: list[tuple[str, list[tuple[str, str]], str]] = [
+    ("docx", [("binary", "pandoc"), ("module", "docx")], ""),
+    ("pptx", [("binary", "pandoc"), ("module", "pptx")], ""),
+    ("xlsx", [("binary", "pandoc"), ("module", "openpyxl")], "openpyxl required for --to csv"),
+    ("xls", [("binary", "pandoc")], "legacy format; no Python fallback exists"),
+    ("pdf", [("binary", "pdftotext"), ("module", "pypdf")], "pdftotext ships with poppler"),
+    ("yaml", [("module", "yaml")], "falls back to raw text if missing"),
+    ("toml", [("module", "tomllib"), ("module", "tomli")], "tomllib is stdlib on 3.11+"),
+    ("json", [], "stdlib"),
+    ("xml", [], "stdlib"),
+    ("csv", [], "stdlib"),
+    ("md/txt", [], "read as-is"),
+]
+
+
+def _have(kind: str, name: str) -> bool:
+    if kind == "binary":
+        return shutil.which(name) is not None
+    if name == "tomllib":
+        return sys.version_info >= (3, 11)
+    return _has_module(name)
+
+
+def check_dependencies() -> list[tuple[str, bool, str]]:
+    """Report which converter each format would use, for `--check-deps`.
+
+    Returns (format, usable, detail) per format, where detail names the
+    converter that would actually be chosen or what's missing. Mirrors
+    convert_to_text()'s dispatch order rather than describing it
+    independently — the point is to answer "what will gaz do with this
+    file type," not "what packages are installed."
+    """
+    rows = []
+    for fmt, requirements, note in _CONVERTER_REQUIREMENTS:
+        if not requirements:
+            rows.append((fmt, True, note))
+            continue
+        available = [name for kind, name in requirements if _have(kind, name)]
+        if available:
+            detail = f"using {available[0]}"
+            if note:
+                detail += f" ({note})"
+            rows.append((fmt, True, detail))
+        else:
+            missing = " or ".join(name for _, name in requirements)
+            detail = f"missing: {missing}"
+            if note:
+                detail += f" ({note})"
+            # yaml/toml degrade to raw text rather than failing outright.
+            usable = fmt in ("yaml", "toml")
+            rows.append((fmt, usable, detail))
+    return rows
 
 
 def detect_format(path: str) -> str:
@@ -169,6 +230,7 @@ def _run_subprocess(cmd: list[str], *, max_seconds: float) -> subprocess.Complet
 
 
 def _convert_office(path: str, fmt: str, *, max_seconds: float) -> ConvertResult:
+    pandoc_error: str | None = None
     if shutil.which("pandoc"):
         try:
             proc = _run_subprocess(
@@ -187,7 +249,10 @@ def _convert_office(path: str, fmt: str, *, max_seconds: float) -> ConvertResult
                 method="pandoc",
                 warning=warning,
             )
-        # pandoc failed outright — fall through to a Python fallback below.
+        # pandoc failed outright — fall through to a Python fallback below,
+        # but keep its stderr: if no fallback is installed either, that
+        # message is the only real explanation of what went wrong.
+        pandoc_error = proc.stderr.decode("utf-8", errors="replace").strip() or None
 
     if fmt == "docx" and _has_module("docx"):
         return _convert_docx_python(path)
@@ -196,6 +261,13 @@ def _convert_office(path: str, fmt: str, *, max_seconds: float) -> ConvertResult
     if fmt == "xlsx" and _has_module("openpyxl"):
         return _convert_xlsx_python(path)
 
+    if pandoc_error:
+        raise UnsupportedFormat(
+            f"cannot convert {path!r} — pandoc failed: {pandoc_error}. "
+            f"No Python fallback is installed either; run "
+            f"`pip install gaz[preview]` to add one, or check whether the "
+            f"file is actually a valid .{fmt}."
+        )
     raise UnsupportedFormat(
         f"cannot convert .{fmt} — no converter available. "
         f"Install pandoc (https://pandoc.org/installing.html), or run "
@@ -203,42 +275,69 @@ def _convert_office(path: str, fmt: str, *, max_seconds: float) -> ConvertResult
     )
 
 
+@contextmanager
+def _library_errors(path: str, fmt: str, library: str):
+    """Turn a converter library's own exception into an UnsupportedFormat.
+
+    Every optional library raises its own exception type for a corrupt,
+    truncated, empty, or mislabeled file (docx.opc.exceptions.
+    PackageNotFoundError, pypdf.errors.EmptyFileError, zipfile.BadZipFile,
+    ...). Letting those propagate gives the user a raw traceback from a
+    library they may not know they have installed, which reads as "gaz
+    crashed" rather than "this file isn't what its extension says." There
+    are too many such types across five libraries to enumerate, so catch
+    broadly and re-raise with the path, the format, and what actually
+    failed — the one thing the user needs to act on.
+    """
+    try:
+        yield
+    except Exception as e:  # noqa: BLE001 — see docstring
+        raise UnsupportedFormat(
+            f"cannot read {path!r} as .{fmt} — {library} failed: "
+            f"{type(e).__name__}: {e}. The file may be corrupt, truncated, "
+            f"or not actually a .{fmt} file despite its extension."
+        ) from e
+
+
 def _convert_docx_python(path: str) -> ConvertResult:
     import docx
 
-    document = docx.Document(path)
-    paragraphs = [p.text for p in document.paragraphs]
+    with _library_errors(path, "docx", "python-docx"):
+        document = docx.Document(path)
+        paragraphs = [p.text for p in document.paragraphs]
     return ConvertResult(text="\n\n".join(paragraphs), method="python-docx")
 
 
 def _convert_pptx_python(path: str) -> ConvertResult:
     from pptx import Presentation
 
-    presentation = Presentation(path)
-    slides_text = []
-    for i, slide in enumerate(presentation.slides, start=1):
-        lines = [f"## Slide {i}"]
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                text = shape.text_frame.text.strip()
-                if text:
-                    lines.append(text)
-        slides_text.append("\n".join(lines))
+    with _library_errors(path, "pptx", "python-pptx"):
+        presentation = Presentation(path)
+        slides_text = []
+        for i, slide in enumerate(presentation.slides, start=1):
+            lines = [f"## Slide {i}"]
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    text = shape.text_frame.text.strip()
+                    if text:
+                        lines.append(text)
+            slides_text.append("\n".join(lines))
     return ConvertResult(text="\n\n".join(slides_text), method="python-pptx")
 
 
 def _convert_xlsx_python(path: str) -> ConvertResult:
     import openpyxl
 
-    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    sheets_text = []
-    for name in workbook.sheetnames:
-        sheet = workbook[name]
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        for row in sheet.iter_rows(values_only=True):
-            writer.writerow(["" if v is None else v for v in row])
-        sheets_text.append(f"## Sheet: {name}\n\n{buf.getvalue()}")
+    with _library_errors(path, "xlsx", "openpyxl"):
+        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        sheets_text = []
+        for name in workbook.sheetnames:
+            sheet = workbook[name]
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            for row in sheet.iter_rows(values_only=True):
+                writer.writerow(["" if v is None else v for v in row])
+            sheets_text.append(f"## Sheet: {name}\n\n{buf.getvalue()}")
     return ConvertResult(text="\n\n".join(sheets_text), method="openpyxl")
 
 
@@ -256,12 +355,13 @@ def _convert_xlsx_to_csv(path: str, *, max_seconds: float) -> ConvertResult:
         )
     import openpyxl
 
-    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    sheet = workbook[workbook.sheetnames[0]]
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    for row in sheet.iter_rows(values_only=True):
-        writer.writerow(["" if v is None else v for v in row])
+    with _library_errors(path, "xlsx", "openpyxl"):
+        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        sheet = workbook[workbook.sheetnames[0]]
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        for row in sheet.iter_rows(values_only=True):
+            writer.writerow(["" if v is None else v for v in row])
 
     warning = None
     if len(workbook.sheetnames) > 1:
@@ -321,8 +421,9 @@ def _convert_pdf(path: str, *, max_seconds: float) -> ConvertResult:
 def _convert_pdf_python(path: str) -> ConvertResult:
     from pypdf import PdfReader
 
-    reader = PdfReader(path)
-    pages_text = [page.extract_text() or "" for page in reader.pages]
+    with _library_errors(path, "pdf", "pypdf"):
+        reader = PdfReader(path)
+        pages_text = [page.extract_text() or "" for page in reader.pages]
     return ConvertResult(text="\n\n".join(pages_text), method="pypdf")
 
 

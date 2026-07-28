@@ -192,10 +192,13 @@ Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 Pretty-prints JSON/YAML/TOML/XML/CSV and converts DOCX/PPTX/XLSX/PDF to
 readable Markdown/text (via `pandoc`/`pdftotext` if installed, or the
 `gaz[preview]` extra's Python fallbacks), then shows up to `--max-lines`
-(default 50) of the result.
+(default 50) of the result under a one-line header giving the file's size
+and timestamps.
 
 ```
 $ gaz preview annotations.json
+annotations.json  118 B  modified 2026-02-14  created 2026-01-30
+
 {
   "image": "0001.jpg",
   "boxes": [
@@ -209,6 +212,8 @@ Showing all 8 lines (method: stdlib-json). Complete.
 
 ```
 $ gaz preview report.docx
+report.docx  46.1 KB  modified 2026-03-02  created 2026-03-02
+
 [converted markdown, up to 50 lines]
 
 Showing 50 of 812 lines (method: pandoc). Re-run with --full to see
@@ -217,7 +222,25 @@ everything, or `gaz convert` to save it to a file.
 
 `--full` shows the whole file regardless of `--max-lines`. If no converter
 is available for a format, `preview` fails with a message naming exactly
-what to install — it never guesses or emits garbage.
+what to install — it never guesses or emits garbage. A file that's corrupt
+or mislabeled (a `.docx` that isn't really one) gets an error naming the
+file and the converter that rejected it, not a library traceback.
+
+`gaz preview --check-deps` takes no file and reports which converter each
+format would actually use, so you can see what's missing before hitting it:
+
+```
+$ gaz preview --check-deps
+format  usable  converter
+------  ------  ----------------------------------------
+docx    yes     using pandoc
+pdf     NO      missing: pdftotext or pypdf (pdftotext ships with poppler)
+json    yes     stdlib
+...
+
+1 format(s) have no converter: pdf. Install pandoc and/or poppler, or run
+`pip install gaz[preview]`.
+```
 
 ### `gaz convert` — save a converted file to disk
 

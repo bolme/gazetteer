@@ -292,3 +292,106 @@ def test_convert_xlsx_to_csv_without_openpyxl_raises(tmp_path, monkeypatch):
 
 def test_preview_only_formats_are_json_yaml_toml_xml():
     assert PREVIEW_ONLY_FORMATS == {"json", "yaml", "toml", "xml"}
+
+
+# --- Corrupt/mislabeled files must not leak library tracebacks ---------
+# Each optional library raises its own exception type for a file that
+# isn't what its extension claims. Those used to propagate as raw
+# tracebacks (see TODO.md's preview/convert error-path item); they must
+# come back as UnsupportedFormat naming the file and the library.
+
+
+@pytest.mark.skipif(
+    not importlib.util.find_spec("docx"), reason="python-docx not installed"
+)
+def test_corrupt_docx_raises_unsupported_not_library_error(tmp_path, monkeypatch):
+    # No pandoc, so dispatch reaches the python-docx fallback.
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    path = tmp_path / "fake.docx"
+    path.write_text("this is plainly not a docx")
+
+    with pytest.raises(UnsupportedFormat) as exc_info:
+        convert_to_text(str(path))
+
+    message = str(exc_info.value)
+    assert "python-docx" in message
+    assert "fake.docx" in message
+    assert "corrupt, truncated, or not actually a .docx" in message
+
+
+@pytest.mark.skipif(
+    not importlib.util.find_spec("pypdf"), reason="pypdf not installed"
+)
+def test_empty_pdf_raises_unsupported_not_library_error(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    path = tmp_path / "empty.pdf"
+    path.write_bytes(b"")
+
+    with pytest.raises(UnsupportedFormat) as exc_info:
+        convert_to_text(str(path))
+
+    message = str(exc_info.value)
+    assert "pypdf" in message
+    assert "empty.pdf" in message
+
+
+def test_pandoc_failure_without_fallback_surfaces_pandoc_stderr(tmp_path, monkeypatch):
+    """pandoc exists but fails, and no Python fallback is installed.
+
+    The old message said only "no converter available," hiding the actual
+    reason. pandoc's stderr is the only real explanation, so it must survive.
+    """
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/pandoc")
+    monkeypatch.setattr("gazetteer.convert._has_module", lambda name: False)
+
+    class FakeProc:
+        returncode = 1
+        stdout = b""
+        stderr = b"pandoc: cannot decode byte -- invalid UTF-8 stream"
+
+    monkeypatch.setattr(
+        "gazetteer.convert._run_subprocess", lambda cmd, max_seconds: FakeProc()
+    )
+    path = tmp_path / "report.docx"
+    path.write_bytes(b"garbage")
+
+    with pytest.raises(UnsupportedFormat) as exc_info:
+        convert_to_text(str(path))
+
+    message = str(exc_info.value)
+    assert "invalid UTF-8 stream" in message
+    assert "gaz[preview]" in message
+
+
+# --- check_dependencies -----------------------------------------------
+
+
+def test_check_dependencies_reports_every_format():
+    from gazetteer.convert import check_dependencies
+
+    rows = check_dependencies()
+    formats = {fmt for fmt, _, _ in rows}
+    assert {"docx", "pptx", "xlsx", "pdf", "json", "csv", "xml"} <= formats
+    # stdlib-only formats are always usable, whatever is installed.
+    stdlib = {fmt: usable for fmt, usable, _ in rows}
+    assert stdlib["json"] and stdlib["xml"] and stdlib["csv"]
+
+
+def test_check_dependencies_marks_missing_converters(monkeypatch):
+    from gazetteer.convert import check_dependencies
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("gazetteer.convert._has_module", lambda name: False)
+
+    rows = {fmt: (usable, detail) for fmt, usable, detail in check_dependencies()}
+
+    usable, detail = rows["docx"]
+    assert usable is False
+    assert "pandoc" in detail and "docx" in detail
+
+    # yaml degrades to raw text rather than failing, so it stays usable.
+    usable, _ = rows["yaml"]
+    assert usable is True
+
+    # stdlib formats are unaffected by anything being missing.
+    assert rows["json"][0] is True

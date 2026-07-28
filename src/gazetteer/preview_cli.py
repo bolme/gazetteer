@@ -11,30 +11,82 @@ import os
 
 import click
 
-from gazetteer import convert, report
+from gazetteer import convert, report, walk
+
+
+def _metadata_header(path: str) -> str:
+    """One-line file summary shown above previewed content.
+
+    Size/timestamps are often as useful as the content for orientation
+    ("is this the file I meant, and is it current?"), and they're the one
+    thing the converted text can never tell you. Uses apparent size, not
+    allocated blocks: this describes the file, not its disk footprint.
+    """
+    st = os.stat(path)
+    return (
+        f"{os.path.basename(path)}  "
+        f"{report.human_size(st.st_size)}  "
+        f"modified {report.human_date(st.st_mtime)}  "
+        f"created {report.human_date(walk.entry_ctime(st))}"
+    )
+
+
+def _print_check_deps() -> None:
+    rows = convert.check_dependencies()
+    table = [
+        (fmt, "yes" if usable else "NO", detail)
+        for fmt, usable, detail in rows
+    ]
+    click.echo(report.render_table(table, ("format", "usable", "converter")))
+    click.echo()
+    missing = [fmt for fmt, usable, _ in rows if not usable]
+    if missing:
+        click.echo(
+            f"{len(missing)} format(s) have no converter: {', '.join(missing)}. "
+            f"Install pandoc and/or poppler, or run `pip install gaz[preview]`."
+        )
+    else:
+        click.echo("All supported formats have a converter available.")
 
 
 @click.command()
-@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.argument("path", required=False, type=click.Path(exists=True, dir_okay=False))
 @click.option("--max-lines", default=50, show_default=True, help="Lines of converted output to show.")
 @click.option("--full", is_flag=True, help="Show the whole file, ignoring --max-lines.")
+@click.option(
+    "--check-deps",
+    is_flag=True,
+    help="Report which converter each format would use, then exit. Takes no PATH.",
+)
 @click.option(
     "--max-seconds",
     default=30.0,
     show_default=True,
     help="Wall-clock budget for the conversion step (e.g. a pandoc/pdftotext subprocess).",
 )
-def preview(path: str, max_lines: int, full: bool, max_seconds: float) -> None:
+def preview(
+    path: str | None, max_lines: int, full: bool, check_deps: bool, max_seconds: float
+) -> None:
     """Show a bounded, format-aware preview of a single file.
 
     Converts the file to readable text (pandoc/pdftotext for office and PDF
     formats, pretty-printing for JSON/YAML/TOML/XML/CSV, as-is for
-    Markdown/plain text) and prints up to --max-lines of it.
+    Markdown/plain text) and prints up to --max-lines of it, under a
+    one-line header naming the file's size and timestamps.
     """
+    if check_deps:
+        _print_check_deps()
+        return
+    if path is None:
+        raise click.UsageError("missing PATH (or pass --check-deps).")
+
     try:
         result = convert.convert_to_text(path, max_seconds=max_seconds)
     except convert.UnsupportedFormat as e:
         raise click.ClickException(str(e))
+
+    click.echo(_metadata_header(path))
+    click.echo()
 
     lines = result.text.splitlines()
     shown = lines if full else lines[:max_lines]

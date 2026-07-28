@@ -121,6 +121,20 @@ file, gaz is measuring space consumed and `ls` is showing length; both
 are right about different questions. `--size` filters match apparent
 length, and `gaz list --json` gives you both (`size`, `apparent_size`).
 
+## When `gaz preview` can't read a file
+
+`gaz preview` prints a header with the file's size and timestamps before
+the content — worth reading, since "this file is 0 B" or "last modified
+three years ago" often explains the content faster than the content does.
+
+If it errors, the message distinguishes two different problems: a missing
+converter ("install pandoc, or `pip install gaz[preview]`") versus a file
+that isn't what its extension claims ("python-docx failed: ... may be
+corrupt, truncated, or not actually a .docx"). Don't report the second as
+a gaz limitation — it's a fact about the file. Run `gaz preview
+--check-deps` (no file argument) to see which converter each format would
+use before concluding anything is missing.
+
 ## Command cheat sheet
 
 | Command | Question it answers |

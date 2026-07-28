@@ -61,11 +61,11 @@ class WalkEntry:
     # Creation time where the platform tracks it (st_birthtime on macOS/BSD),
     # falling back to st_ctime elsewhere — which is metadata-change time, not
     # creation. Named `ctime` rather than `created` so the fallback isn't
-    # misrepresented as something stronger than it is; see _entry_ctime.
+    # misrepresented as something stronger than it is; see entry_ctime.
     ctime: float = 0.0
 
 
-def _entry_ctime(stat_result: os.stat_result) -> float:
+def entry_ctime(stat_result: os.stat_result) -> float:
     """Best available creation time for a stat result.
 
     macOS/BSD expose a real creation time as st_birthtime; Linux does not,
@@ -243,7 +243,7 @@ def walk(
                         size=_entry_size(stat_result),
                         apparent_size=stat_result.st_size,
                         mtime=stat_result.st_mtime,
-                        ctime=_entry_ctime(stat_result),
+                        ctime=entry_ctime(stat_result),
                     )
                 )
                 result.n_files += 1
@@ -260,7 +260,7 @@ def walk(
                         is_dir=True,
                         size=0,
                         mtime=stat_result.st_mtime,
-                        ctime=_entry_ctime(stat_result),
+                        ctime=entry_ctime(stat_result),
                     )
                 )
                 if not cross_fs and stat_result.st_dev != root_dev:
@@ -277,7 +277,7 @@ def walk(
                         size=_entry_size(stat_result),
                         apparent_size=stat_result.st_size,
                         mtime=stat_result.st_mtime,
-                        ctime=_entry_ctime(stat_result),
+                        ctime=entry_ctime(stat_result),
                     )
                 )
                 result.n_files += 1
