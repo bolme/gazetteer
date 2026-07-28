@@ -46,6 +46,8 @@ never arrives. This is the whole product. Do not add a feature that can run unbo
 | `list`'s depth | Always exactly one level; no `--recursive`, no `--depth` | Each subdirectory row already reports totals for its *whole* subtree, so a nested listing would re-answer at every level what one level answers once. Going deeper is `gaz list <that row>` — a second command invocation, not a second output mode. |
 | `list`'s incomplete rows | `*` after the directory name, once per row | A directory whose subtree wasn't fully scanned has counts that are floors, not totals. Marking the row once (`train/*`) rather than flagging each numeric cell keeps the table readable while still never presenting a partial number as if it were complete. |
 | Size measurement | Allocated blocks (`st_blocks * 512`) for space totals; `st_size` for per-file sizes and `--size` filters | See "Apparent vs. allocated size" below. |
+| Path rendering | Relative to the walk root (`./sub/file.txt`) in text output; `-P`/`--full-paths` for absolute; `--json` always absolute | Absolute paths routinely run past 100 characters on a real tree and push the numeric columns off the right edge, burying the numbers the command exists to report. Relative is also what a user can act on directly from the same cwd. `--json` is the exception because a script consuming gaz's output may run from a different cwd than gaz did, so a relative path there would be ambiguous — and unlike a human reading a table, a consumer isn't paying a readability cost for the length. |
+| `-P` on every path command | A shared `full_path_option` decorator, applied to all six commands with a path column (not `ext`) | A flag present on five of six commands is a worse inconsistency than one absent everywhere. `ext` is excluded rather than given a no-op flag: its rows are extensions, so `-P` there would parse and do nothing, which is its own kind of lie. |
 | `largest` as its own command | Separate from `gaz list --sort size`, not a flag on it | They answer different questions: `list` ranks a directory's *immediate children* (a subdirectory row aggregating its whole subtree), `largest` ranks *individual files* anywhere beneath. Folding the second into the first would mean one command whose rows are sometimes directories-with-subtree-totals and sometimes single files — a mode switch, not a sort order. `--max-rows` doubles as the N, so no separate `-n` was needed. |
 
 ## Traversal order
@@ -222,7 +224,7 @@ formatting is what `--json` exists to skip):
 | `largest` | `path, size, apparent_size, mtime` | `files, bytes, shown_bytes, filtered, ranked_by` |
 | `stale` | `path, age_seconds, size, suspicious_mtime` | `files, bytes, older_than, filtered, n_suspicious_mtime` |
 | `empty` | `dir` | `empty_dirs, unvisited_dirs, scanned_dirs` |
-| `dup` | `path, copies, size_each, reclaimable` | `duplicate_sets, reclaimable_bytes, hash_complete, hash_stop_reason, n_hashed` |
+| `dup` | `path, paths, copies, size_each, reclaimable` | `duplicate_sets, reclaimable_bytes, hash_complete, hash_stop_reason, n_hashed` |
 
 ## Cache
 

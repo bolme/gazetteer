@@ -7,6 +7,7 @@ natural-language status describing whether the result is complete.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 
@@ -97,6 +98,37 @@ def human_duration(seconds: float) -> str:
     if seconds < 365 * 86400:
         return f"{seconds / (7 * 86400):.0f}w"
     return f"{seconds / (365 * 86400):.1f}y"
+
+
+def display_path(path: str, root: str, *, full_paths: bool = False, is_dir: bool = False) -> str:
+    """Render a path for a text table: `./sub/file.txt` by default.
+
+    Absolute paths are the single biggest source of table noise — on a
+    real tree they routinely run past 100 characters and push every other
+    column off the right edge, burying the numbers the command exists to
+    report. Relative-to-the-walk-root is what a user can act on directly
+    (paste it into another command from the same cwd), so it's the
+    default everywhere in text output.
+
+    `full_paths` (the shared `-P` flag) resolves symlinks too. A symlink
+    renders as `link -> target` so it stays distinguishable from the
+    directory it points at rather than printing as a duplicate row.
+
+    Note that `--json` deliberately does *not* use this: a script
+    consuming gaz's output may run from a different cwd than gaz did, so
+    JSON always carries absolute paths. See DESIGN.md.
+    """
+    if full_paths:
+        real = os.path.realpath(path)
+        if os.path.islink(path):
+            return f"{path} -> {real}"
+        return real
+    if path == root:
+        # The root renders as "./" rather than "." — it's a directory, and
+        # "./" reads as one where a bare dot looks like a stray character.
+        return "./"
+    rendered = "./" + os.path.relpath(path, root)
+    return rendered + ("/" if is_dir else "")
 
 
 def human_date(timestamp: float) -> str:

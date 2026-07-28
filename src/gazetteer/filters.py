@@ -64,6 +64,22 @@ _LIMIT_OPTIONS = [
     ),
 ]
 
+# Applied only to commands whose rows actually contain paths (everything
+# except `ext`, whose rows are extensions). Kept here rather than repeated
+# per-command so the flag name, help text, and semantics stay identical
+# across all of them.
+full_path_option = click.option(
+    "-P",
+    "--full-paths",
+    "full_paths",
+    is_flag=True,
+    help=(
+        "Show fully-resolved absolute paths (symlinks resolved) instead "
+        "of paths relative to PATH. Only affects text output; --json "
+        "always emits absolute paths."
+    ),
+)
+
 _TRAVERSAL_OPTIONS = [
     click.option(
         "--depth-first",

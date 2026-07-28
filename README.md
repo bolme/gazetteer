@@ -64,6 +64,12 @@ descent, so it also frees up budget rather than just hiding output), `--json`
 for a bounded structured-output alternative to the text table (see below),
 and most accept `--ext`, `--pattern`, and `--size` to scope what's counted.
 
+Paths print relative to the directory you asked about (`./sub/file.txt`) —
+absolute paths on a real tree push the numbers off the right edge. Pass
+`-P`/`--full-paths` for absolute paths with symlinks resolved. `--json`
+always emits absolute paths regardless, since whatever consumes it may be
+running from a different directory.
+
 ### `gaz ext` — file-extension breakdown
 
 The highest-value command for understanding a CV dataset at a glance:
@@ -101,10 +107,11 @@ Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ```
 
 Sort with `--sort name|size|files|modified|created` (`--reverse` flips it;
-directories always sort before files). Add columns with `--fields
-created|dirs|path`, and `-P`/`--full-paths` swaps names for resolved
-absolute paths (a symlink shows as `link -> target`, so it stays
-distinguishable from the directory it points at).
+directories always sort before files) and add columns with `--fields
+created|dirs|path`. Rows show bare names here, since they're always exactly
+one level down; the shared `-P` swaps them for resolved absolute paths (a
+symlink shows as `link -> target`, so it stays distinguishable from the
+directory it points at).
 
 A `*` after a directory name (`train/*`) means the walk stopped before
 that subtree was fully scanned, so its counts and sizes are lower bounds
@@ -172,11 +179,16 @@ you can reclaim without breaking the installed environment, so they're
 usually just noise. Opt-in, and composes with `--exclude` rather than
 replacing it.
 
+Every copy in a set is listed, not just a representative — the point of
+the command is deciding what to delete, and that needs the other paths.
+`--max-rows` limits duplicate *sets*, not individual lines.
+
 ```
 $ gaz dup /data/dataset
-path (first copy)                    copies  size_each  reclaimable
-------------------------------------  ------  ---------  -----------
-/data/dataset/train/images/0001.jpg  3       241.2 KB   482.4 KB
+3 copies × 241.2 KB = 482.4 KB reclaimable
+    ./train/images/0001.jpg
+    ./train/images/0417.jpg
+    ./val/images/0033.jpg
 
 Total: 1 duplicate sets, 482.4 KB reclaimable
 Hashed 6 candidate files. Complete.

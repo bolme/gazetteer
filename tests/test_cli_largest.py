@@ -58,7 +58,7 @@ def test_largest_max_rows_is_the_n(tmp_path):
 
     assert result.exit_code == 0
     assert len(_paths(result.output)) == 3
-    assert "Showing the 3 largest of 10 files" in result.output
+    assert "Showing 3 of 10 files" in result.output
 
 
 def test_largest_totals_cover_every_candidate_not_just_shown_rows(tmp_path):

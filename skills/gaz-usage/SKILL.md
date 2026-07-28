@@ -110,6 +110,14 @@ A `*` after a directory name (`Documents/*`) means the walk stopped
 before that subtree was fully scanned — its counts and sizes are floors,
 not totals. Raise `--max-seconds` if you need the real figure.
 
+## Paths are relative; `-P` when you need to act on them
+
+Every command with a path column prints paths relative to the directory
+you asked about (`./sub/file.txt`). If you're going to feed a path to
+another tool, either run that tool from the same directory or pass `-P`
+for absolute paths. `--json` always gives absolute paths, so parsing that
+is the safer route when composing steps.
+
 ## `gaz list` vs `gaz largest`
 
 Both answer "what's big," but not the same question. `gaz list` ranks a

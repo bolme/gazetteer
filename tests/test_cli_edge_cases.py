@@ -103,11 +103,11 @@ def test_dup_handles_three_way_duplicate_set(tmp_path):
     # Reclaimable is disk blocks freed, not apparent bytes: deleting two
     # copies of a tiny file frees the two blocks they occupied, so the
     # figure is a multiple of the block size rather than 2 * len(content).
+    assert "3 copies" in result.output
     assert "reclaimable" in result.output
-    table_line = next(
-        line for line in result.output.splitlines() if str(tmp_path) in line
-    )
-    assert "3" in table_line.split()
+    # Every copy is listed, not just a representative.
+    for name in ("a.txt", "b.txt", "c.txt"):
+        assert f"./{name}" in result.output
 
 
 def test_dup_files_with_same_size_but_different_content_are_not_duplicates(tmp_path):
@@ -148,7 +148,8 @@ def test_empty_root_itself_is_reported_when_it_has_no_files(tmp_path):
     result = runner.invoke(main, ["empty", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert str(tmp_path) in result.output
+    # The walk root itself renders as "./" in relative mode.
+    assert "./" in result.output
     assert (
         "1 directories confirmed empty of 1 that were fully scanned."
         in result.output

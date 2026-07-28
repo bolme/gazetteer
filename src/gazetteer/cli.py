@@ -14,6 +14,7 @@ from gazetteer import preview_cli, report, walk
 from gazetteer.filters import (
     SIZE_HELP,
     filter_options,
+    full_path_option,
     limit_options,
     matches_filters,
     traversal_options,
@@ -127,13 +128,16 @@ def ext(
         )
         return
 
+    shown = report.limit_rows(rows, max_rows)
     truncated_rows = [
         (extension, count, report.human_size(total), report.human_size(median))
-        for extension, count, total, median in report.limit_rows(rows, max_rows)
+        for extension, count, total, median in shown
     ]
     click.echo(report.render_table(truncated_rows, ("ext", "count", "total_size", "median_size")))
     click.echo()
 
+    if len(shown) < len(rows):
+        click.echo(f"Showing {len(shown):,} of {len(rows):,} extensions.")
     click.echo(
         f"{report.total_label(result, filtered=is_filtered)}: "
         f"{matched_files:,} files, {report.human_size(matched_bytes)}"
@@ -179,15 +183,6 @@ class ListRow:
 @main.command("list")
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option(
-    "-P",
-    "--full-paths",
-    is_flag=True,
-    help=(
-        "Show fully-resolved absolute paths (symlinks resolved) instead of "
-        "names relative to PATH."
-    ),
-)
-@click.option(
     "--sort",
     "sort_key",
     type=click.Choice(sorted(LIST_SORT_KEYS)),
@@ -211,15 +206,16 @@ class ListRow:
         "Repeatable."
     ),
 )
+@full_path_option
 @limit_options
 @traversal_options
 @filter_options
 def list_dir(
     path: str,
-    full_paths: bool,
     sort_key: str,
     reverse: bool,
     extra_fields: tuple[str, ...],
+    full_paths: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
@@ -354,24 +350,6 @@ def list_dir(
     rows.sort(key=key_fn, reverse=descending)
     rows.sort(key=lambda r: not r.is_dir)
 
-    def resolved_path(row: ListRow) -> str:
-        """Absolute path with symlinks resolved.
-
-        A symlink resolves to its target, which can be the same path as
-        another row's (a link and the directory it points at both appear
-        in a listing). Marked with "-> " so the two stay distinguishable
-        rather than printing as identical duplicate rows.
-        """
-        real = os.path.realpath(row.path)
-        if os.path.islink(row.path):
-            return f"{row.path} -> {real}"
-        return real
-
-    def display_path(row: ListRow) -> str:
-        if full_paths:
-            return resolved_path(row)
-        return "./" + os.path.relpath(row.path, root) + ("/" if row.is_dir else "")
-
     shown = report.limit_rows(rows, max_rows)
 
     if json_output:
@@ -379,7 +357,8 @@ def list_dir(
         for row in shown:
             json_row = {
                 "name": row.name,
-                "path": os.path.realpath(row.path) if full_paths else row.path,
+                # Always absolute: a consumer's cwd is not gaz's cwd.
+                "path": row.path,
                 "type": "dir" if row.is_dir else "file",
                 "n_files": row.n_files,
                 "n_dirs": row.n_dirs,
@@ -420,7 +399,11 @@ def list_dir(
         # A trailing "*" on the name marks a directory whose subtree wasn't
         # fully scanned — every number on that row is a floor, not a total.
         # Marking the row once beats repeating a flag on each numeric cell.
-        name = display_path(row) if full_paths else row.name
+        name = (
+            report.display_path(row.path, root, full_paths=True, is_dir=row.is_dir)
+            if full_paths
+            else row.name
+        )
         if not row.complete:
             name += "*"
         # Counts are a directory question; a plain file's "1 file, 0 dirs"
@@ -463,6 +446,7 @@ def list_dir(
 @main.command(cls=FindCommand)
 @click.argument("pattern")
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@full_path_option
 @limit_options
 @traversal_options
 @click.option(
@@ -481,6 +465,7 @@ def list_dir(
 def find(
     pattern: str,
     path: str,
+    full_paths: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
@@ -504,6 +489,7 @@ def find(
         shuffle=shuffle,
         seed=seed,
     )
+    root = os.path.abspath(path)
 
     matches = [
         e for e in result.entries
@@ -520,11 +506,17 @@ def find(
         return
 
     rows = [
-        (m.path, "dir" if m.is_dir else "file", report.human_size(m.apparent_size))
+        (
+            report.display_path(m.path, root, full_paths=full_paths, is_dir=m.is_dir),
+            "dir" if m.is_dir else "file",
+            report.human_size(m.apparent_size),
+        )
         for m in truncated
     ]
     click.echo(report.render_table(rows, ("path", "type", "size")))
     click.echo()
+    if len(truncated) < len(matches):
+        click.echo(f"Showing {len(truncated):,} of {len(matches):,} matches.")
     click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
@@ -548,6 +540,7 @@ def find(
         "fewer blocks than their length suggests."
     ),
 )
+@full_path_option
 @limit_options
 @traversal_options
 @filter_options
@@ -555,6 +548,7 @@ def largest(
     path: str,
     min_size: str | None,
     apparent: bool,
+    full_paths: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
@@ -596,6 +590,7 @@ def largest(
         shuffle=shuffle,
         seed=seed,
     )
+    root = os.path.abspath(path)
 
     def rank_size(entry: WalkEntry) -> int:
         return entry.apparent_size if apparent else entry.size
@@ -642,7 +637,11 @@ def largest(
         return
 
     rows = [
-        (report.human_size(rank_size(e)), report.human_date(e.mtime), e.path)
+        (
+            report.human_size(rank_size(e)),
+            report.human_date(e.mtime),
+            report.display_path(e.path, root, full_paths=full_paths),
+        )
         for e in shown
     ]
     # Size first: the whole question is "what's big," and a leading size
@@ -652,7 +651,7 @@ def largest(
 
     if len(shown) < len(candidates):
         click.echo(
-            f"Showing the {len(shown):,} largest of {len(candidates):,} files "
+            f"Showing {len(shown):,} of {len(candidates):,} files "
             f"({report.human_size(shown_bytes)} of "
             f"{report.human_size(matched_bytes)})."
         )
@@ -672,12 +671,14 @@ def largest(
     show_default=True,
     help="Only include files last modified more than this long ago (e.g. 90d, 6h, 2w, 1y).",
 )
+@full_path_option
 @limit_options
 @traversal_options
 @filter_options
 def stale(
     path: str,
     older_than: str,
+    full_paths: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
@@ -707,6 +708,7 @@ def stale(
         shuffle=shuffle,
         seed=seed,
     )
+    root = os.path.abspath(path)
 
     now = time.time()
     stale_entries = [
@@ -750,7 +752,7 @@ def stale(
 
     rows = [
         (
-            e.path,
+            report.display_path(e.path, root, full_paths=full_paths),
             report.human_duration(now - e.mtime)
             + (" (?)" if report.is_suspicious_mtime(e.mtime) else ""),
             report.human_size(e.apparent_size),
@@ -760,6 +762,8 @@ def stale(
     click.echo(report.render_table(rows, ("path", "age", "size")))
     click.echo()
 
+    if len(truncated) < len(stale_entries):
+        click.echo(f"Showing {len(truncated):,} of {len(stale_entries):,} files.")
     click.echo(
         f"{report.total_label(result, filtered=is_filtered)}: "
         f"{len(stale_entries):,} files older than {older_than}, "
@@ -778,10 +782,12 @@ def stale(
 
 @main.command()
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@full_path_option
 @limit_options
 @traversal_options
 def empty(
     path: str,
+    full_paths: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
@@ -865,9 +871,14 @@ def empty(
         )
         return
 
-    rows = [(d,) for d in truncated]
+    rows = [
+        (report.display_path(d, root, full_paths=full_paths, is_dir=True),)
+        for d in truncated
+    ]
     click.echo(report.render_table(rows, ("dir",)))
     click.echo()
+    if len(truncated) < len(empty_dirs):
+        click.echo(f"Showing {len(truncated):,} of {len(empty_dirs):,} directories.")
     click.echo(
         f"{len(empty_dirs):,} directories confirmed empty of "
         f"{len(confirmed_dirs):,} that were fully scanned."
@@ -910,6 +921,7 @@ def empty(
         "--exclude rather than replacing it."
     ),
 )
+@full_path_option
 @limit_options
 @traversal_options
 @filter_options
@@ -917,6 +929,7 @@ def dup(
     path: str,
     max_hash_seconds: float,
     skip_vendored: bool,
+    full_paths: bool,
     max_seconds: float,
     max_entries: int,
     max_rows: int,
@@ -943,6 +956,7 @@ def dup(
         shuffle=shuffle,
         seed=seed,
     )
+    root = os.path.abspath(path)
 
     candidates = [
         e
@@ -982,7 +996,11 @@ def dup(
     if json_output:
         json_rows = [
             {
+                # `path` is the first copy, kept for compatibility; `paths`
+                # is every copy in the set, which is what a caller deciding
+                # what to delete actually needs.
                 "path": group[0].path,
+                "paths": [e.path for e in group],
                 "copies": len(group),
                 "size_each": group[0].size,
                 "reclaimable": group[0].size * (len(group) - 1),
@@ -1005,18 +1023,31 @@ def dup(
         )
         return
 
-    rows = []
-    for group in report.limit_rows(dup_groups, max_rows):
+    # Every copy is listed, not just a representative: the question `dup`
+    # answers is "what can I delete," and that needs the other copies'
+    # paths. Sets are separated by a blank line and each set's numbers
+    # appear once, above its paths — a flat table would repeat copies/
+    # size_each on every row and lose which paths belong together.
+    shown_groups = report.limit_rows(dup_groups, max_rows)
+    lines = []
+    for group in shown_groups:
         reclaimable = group[0].size * (len(group) - 1)
-        rows.append((
-            group[0].path,
-            len(group),
-            report.human_size(group[0].size),
-            report.human_size(reclaimable),
-        ))
+        lines.append(
+            f"{len(group)} copies × {report.human_size(group[0].size)} "
+            f"= {report.human_size(reclaimable)} reclaimable"
+        )
+        for e in group:
+            lines.append(
+                f"    {report.display_path(e.path, root, full_paths=full_paths)}"
+            )
+        lines.append("")
+    if lines:
+        click.echo("\n".join(lines))
 
-    click.echo(report.render_table(rows, ("path (first copy)", "copies", "size_each", "reclaimable")))
-    click.echo()
+    if len(shown_groups) < len(dup_groups):
+        click.echo(
+            f"Showing {len(shown_groups):,} of {len(dup_groups):,} duplicate sets."
+        )
 
     if not result.complete:
         incomplete_reason = "walk stopped early"

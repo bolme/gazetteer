@@ -27,6 +27,21 @@
 
 ### Changed
 
+- **Paths are now relative to the walk root in text output** (`./sub/f.txt`)
+  on every command that prints them. Previously `find`, `largest`, `stale`,
+  `empty`, and `dup` printed absolute paths, which on a real tree pushed the
+  numeric columns off the right edge while `gaz list` was already relative.
+  `-P`/`--full-paths` is now a shared flag on all six path-printing commands
+  (not `ext`, whose rows are extensions) and gives absolute paths with
+  symlinks resolved. **`--json` is unchanged and always absolute** — a
+  consumer's cwd is not gaz's cwd.
+- **`gaz dup` lists every copy in a duplicate set**, not just the first.
+  Deciding what to delete needs the other paths. `--max-rows` still limits
+  duplicate *sets*. `--json` rows gain a `paths` array; the existing `path`
+  key still holds the first copy.
+- **Every command now reports row truncation** ("Showing N of M …") when
+  `--max-rows` hides results; previously only `list` and `largest` did, so
+  the other five presented a partial row set with no cue it was partial.
 - **`gaz tree` is now `gaz list`, and lists exactly one level.** The old
   command produced a nested, multi-level listing; each subdirectory row
   now carries the file count and byte total for its *entire* subtree, so

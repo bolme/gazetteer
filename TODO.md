@@ -48,15 +48,6 @@ item below should preserve both.
   composing with `--exclude` the way `--skip-vendored` does. Needs the
   accumulated relative path threaded through `walk.py`'s loop, which
   `is_excluded` doesn't currently see.
-- **[Improvement, S] Text-table output doesn't say when `--max-rows`
-  hid rows** — on every command except `gaz list` and `gaz largest`.
-  `gaz ext --max-rows 3` on a tree with 10 extensions prints 3 rows and a
-  *correct* `Total:` count, but nothing says "3 of 10 shown" — `--json`'s
-  `total` dict lets a script reconstruct this, but the text table gives a
-  human no equivalent cue. Violates the same "never present a partial
-  number as if it were total" principle the walk-truncation status line
-  already follows. Port `list`/`largest`'s "Showing N of M" line to
-  `ext`/`find`/`stale`/`empty`/`dup`.
 
 ### P2
 
@@ -101,6 +92,10 @@ item below should preserve both.
   mirror a settled CLI surface instead of being designed twice.
 
 ## Recently resolved
+
+- **Consistent paths**: relative (`./sub/f.txt`) in text everywhere,
+  shared `-P` for absolute, `--json` always absolute. Every command now
+  reports row truncation, and `gaz dup` lists every copy in a set.
 
 - **`gaz largest`**: biggest individual files across a subtree, with
   `--min-size` and `--apparent`. `--max-rows` doubles as the N.
