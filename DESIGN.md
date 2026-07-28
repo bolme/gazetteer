@@ -320,11 +320,16 @@ reading. Both share one dispatch function, `convert.convert_to_text()`.
 - **preview**: bounded to a terminal. Converts the file to readable text,
   then shows up to `--max-lines` (default `50`) of it, or the whole file
   with `--full`. Same "bounded, and says so when truncated" contract as
-  every other command. A one-line header above the content gives the
-  file's name, apparent size, and modified/created dates — orientation the
-  converted text itself can never supply ("is this the file I meant, and
-  is it current?"). It uses apparent size, not allocated blocks, because
-  it describes the file rather than its disk footprint.
+  every other command. A ruled banner above the content gives the file's
+  name, apparent size, modified/created dates, and the conversion method —
+  orientation the converted text itself can never supply ("is this the
+  file I meant, and is it current?"). It uses apparent size, not allocated
+  blocks, because it describes the file rather than its disk footprint.
+  The rules matter: previewed content is arbitrary text, often Markdown
+  with its own `#` headings, and an unruled metadata line reads as part of
+  the document rather than as gaz's framing of it. Naming the method in
+  the banner also keeps it out of the status line, which is then free to
+  answer only "did I see all of it?"
 - **convert**: unbounded, writes the full result to `-o OUTPUT`. Binary
   formats only (DOCX/PPTX/XLSX/PDF → MD/TXT/CSV) — JSON/YAML/TOML/XML are
   already text, so `convert` refuses them (`gaz preview` is the right tool)
@@ -338,9 +343,33 @@ beyond stdlib; YAML and TOML-on-3.9/3.10 need `PyYAML`/`tomli` (no stdlib
 option exists for either), so those two are the only "always needed for
 this format to work at all" entries in the extra.
 
+**Text markup formats are rendered to Markdown, not shown raw.**
+HTML/RST/Org/LaTeX/EPUB/ipynb are all readable as plain text in a strict
+sense, so "just print them" would work — but in a *bounded* preview the
+boilerplate wins, and the first 50 lines of an HTML file are frequently
+doctype, `<meta>`, and inline CSS before a word of prose. Markdown
+carries the same semantics (headings, lists, tables, emphasis) in far
+fewer lines, which is exactly the tradeoff a line-budgeted preview wants.
+
+Rendered with pandoc's `gfm-raw_html` writer plus `--strip-comments`,
+and each part of that is load-bearing: plain `markdown` appends attribute
+noise to headings (`# Title {#title .class}`); `markdown_strict` falls
+back to raw HTML for tables; and plain `gfm` passes through any HTML it
+can't express, which on an app-shell page of layout `<div>`s made the
+output *longer* than the source (a real 337-line page became 1,742
+lines — dropping raw HTML brought it to 602 lines of actual content).
+
+Unlike the binary formats, a missing pandoc here degrades rather than
+fails: the raw source is shown with a note, because unconverted HTML is
+still legible where an unconverted `.docx` is not. `.epub` is the
+exception — it's a zip archive, so it fails outright like the office
+formats.
+
 `gaz preview --check-deps` reports that ladder for every format — which
 converter would actually be chosen, or what's missing — without needing a
-file to try it on. It's generated from `_CONVERTER_REQUIREMENTS`, kept
+file to try it on. It distinguishes formats that degrade gracefully
+(reported usable, with the caveat in the detail column) from those that
+fail outright. It's generated from `_CONVERTER_REQUIREMENTS`, kept
 adjacent to the dispatch it describes so the two can't drift.
 
 **Every failure path returns an `UnsupportedFormat` with an actionable

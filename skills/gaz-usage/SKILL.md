@@ -123,9 +123,17 @@ length, and `gaz list --json` gives you both (`size`, `apparent_size`).
 
 ## When `gaz preview` can't read a file
 
-`gaz preview` prints a header with the file's size and timestamps before
-the content — worth reading, since "this file is 0 B" or "last modified
-three years ago" often explains the content faster than the content does.
+`gaz preview` prints a ruled banner with the file's size, timestamps, and
+the conversion method before the content — worth reading, since "this file
+is 0 B" or "last modified three years ago" often explains the content
+faster than the content does. Everything between the `====` rules is gaz
+talking; everything after is the file.
+
+Markup formats (HTML, RST, Org, LaTeX, EPUB, `.ipynb`) come back as
+Markdown, not raw source — so a previewed HTML page shows `# Heading` and
+pipe tables rather than doctype and inline CSS. If the method line says
+`raw html (pandoc not installed)`, that's the degraded path: the content
+is still correct, just noisier, and installing pandoc improves it.
 
 If it errors, the message distinguishes two different problems: a missing
 converter ("install pandoc, or `pip install gaz[preview]`") versus a file

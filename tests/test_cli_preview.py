@@ -120,13 +120,30 @@ def test_preview_shows_metadata_header_before_content(tmp_path):
 
     assert result.exit_code == 0
     lines = result.output.splitlines()
-    # Header is the first line, before any converted content.
-    assert lines[0].startswith("sample.json")
-    assert "modified" in lines[0]
-    assert "created" in lines[0]
-    assert "8 B" in lines[0]
-    # ...and the content still follows it.
+    # Banner: rule, filename, detail line, rule — then the content.
+    assert set(lines[0]) == {"="}
+    assert lines[1] == "sample.json"
+    assert "modified" in lines[2]
+    assert "created" in lines[2]
+    assert "8 B" in lines[2]
+    assert "stdlib-json" in lines[2]  # method moved into the header
+    assert set(lines[3]) == {"="}
     assert '"a": 1' in result.output
+
+
+def test_preview_header_rules_span_the_widest_line(tmp_path):
+    # The rules have to bracket the text, not float shorter than it —
+    # otherwise the banner reads as broken rather than as a frame.
+    path = tmp_path / "a-rather-long-file-name-here.json"
+    path.write_text("{}")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path)])
+
+    assert result.exit_code == 0
+    rule, name, detail, rule2 = result.output.splitlines()[:4]
+    assert rule == rule2
+    assert len(rule) == max(len(name), len(detail))
 
 
 def test_preview_header_size_is_apparent_not_allocated(tmp_path):
@@ -139,7 +156,7 @@ def test_preview_header_size_is_apparent_not_allocated(tmp_path):
     result = runner.invoke(main, ["preview", str(path)])
 
     assert result.exit_code == 0
-    assert "3 B" in result.output.splitlines()[0]
+    assert "3 B" in result.output.splitlines()[2]
 
 
 def test_preview_check_deps_lists_formats():

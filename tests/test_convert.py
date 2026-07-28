@@ -395,3 +395,144 @@ def test_check_dependencies_marks_missing_converters(monkeypatch):
 
     # stdlib formats are unaffected by anything being missing.
     assert rows["json"][0] is True
+
+
+# --- Text markup formats rendered to Markdown -------------------------
+# HTML/RST/Org/LaTeX are readable as raw text in a strict sense, but the
+# signal-to-noise is bad in a bounded preview (doctype, meta tags, inline
+# CSS before any prose). Rendering to Markdown keeps the semantics in far
+# fewer lines. See convert._MARKUP_TO_MARKDOWN.
+
+
+HTML_SAMPLE = """<!DOCTYPE html>
+<html><head><title>T</title>
+<style>body { color: #333; margin: 2rem; }</style></head>
+<body><h1>Real Heading</h1>
+<p>Body text with <strong>bold</strong>.</p>
+<ul><li>one</li><li>two</li></ul>
+</body></html>
+"""
+
+
+@pytest.mark.skipif(not HAS_PANDOC, reason="pandoc not on PATH")
+def test_html_is_rendered_to_markdown(tmp_path):
+    path = tmp_path / "page.html"
+    path.write_text(HTML_SAMPLE)
+
+    result = convert_to_text(str(path))
+
+    assert "pandoc" in result.method
+    assert "# Real Heading" in result.text
+    assert "**bold**" in result.text
+    # The noise is gone: no doctype, no inline CSS.
+    assert "DOCTYPE" not in result.text
+    assert "color: #333" not in result.text
+    # ...and it's denser than the source it came from.
+    assert len(result.text.splitlines()) < len(HTML_SAMPLE.splitlines())
+
+
+@pytest.mark.skipif(not HAS_PANDOC, reason="pandoc not on PATH")
+def test_html_tables_become_pipe_tables_not_raw_html(tmp_path):
+    # pandoc's plain `markdown` writer emits attribute noise on headings
+    # and `markdown_strict` falls back to raw HTML for tables; `gfm`
+    # avoids both. Guard the choice of writer.
+    path = tmp_path / "t.html"
+    path.write_text(
+        "<h1 class='x' id='y'>Title</h1>"
+        "<table><tr><th>A</th></tr><tr><td>1</td></tr></table>"
+    )
+
+    result = convert_to_text(str(path))
+
+    assert "| A" in result.text  # a real pipe table
+    assert "<table>" not in result.text
+    assert "{#y" not in result.text and ".x}" not in result.text
+
+
+@pytest.mark.skipif(not HAS_PANDOC, reason="pandoc not on PATH")
+def test_layout_only_html_does_not_expand_into_div_scaffolding(tmp_path):
+    # Regression: with plain `gfm`, pandoc passes through any HTML it
+    # can't express as Markdown, so an app-shell page of layout <div>s
+    # got *longer* (a real 337-line page became 1,742). `gfm-raw_html`
+    # drops it instead — preview wants the prose, not the chrome.
+    path = tmp_path / "app.html"
+    path.write_text(
+        "<html><body>"
+        + "".join(
+            f'<div class="wrap-{i}"><div class="inner"><span></span></div></div>'
+            for i in range(40)
+        )
+        + "<p>The only real sentence.</p></body></html>"
+    )
+
+    result = convert_to_text(str(path))
+
+    assert "The only real sentence." in result.text
+    assert "<div" not in result.text
+    assert len(result.text.splitlines()) < 20
+
+
+@pytest.mark.skipif(not HAS_PANDOC, reason="pandoc not on PATH")
+def test_html_comments_are_stripped(tmp_path):
+    path = tmp_path / "c.html"
+    path.write_text("<!-- build id 12345 --><p>Visible text.</p>")
+
+    result = convert_to_text(str(path))
+
+    assert "Visible text." in result.text
+    assert "build id" not in result.text
+
+
+@pytest.mark.skipif(not HAS_PANDOC, reason="pandoc not on PATH")
+def test_rst_is_rendered_to_markdown(tmp_path):
+    path = tmp_path / "doc.rst"
+    path.write_text("Title\n=====\n\nText with *emph*.\n")
+
+    result = convert_to_text(str(path))
+
+    assert "# Title" in result.text
+
+
+def test_markup_without_pandoc_falls_back_to_raw_source(tmp_path, monkeypatch):
+    # Unlike a .docx, raw HTML is still legible — degrade with a note
+    # rather than failing.
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    path = tmp_path / "page.html"
+    path.write_text(HTML_SAMPLE)
+
+    result = convert_to_text(str(path))
+
+    assert "DOCTYPE" in result.text  # the raw source
+    assert result.warning is not None
+    assert "pandoc not installed" in result.warning
+
+
+def test_epub_without_pandoc_is_an_error_not_raw_bytes(tmp_path, monkeypatch):
+    # .epub is a zip; showing raw bytes would help nobody, so unlike the
+    # text markup formats it fails outright.
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    path = tmp_path / "book.epub"
+    path.write_bytes(b"PK\x03\x04")
+
+    with pytest.raises(UnsupportedFormat) as exc_info:
+        convert_to_text(str(path))
+
+    assert "pandoc" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "filename,expected",
+    [
+        ("page.html", "html"),
+        ("page.htm", "html"),
+        ("doc.rst", "rst"),
+        ("notes.org", "org"),
+        ("paper.tex", "latex"),
+        ("book.epub", "epub"),
+        ("nb.ipynb", "ipynb"),
+    ],
+)
+def test_detect_format_recognizes_markup_extensions(tmp_path, filename, expected):
+    path = tmp_path / filename
+    path.write_text("x")
+    assert detect_format(str(path)) == expected

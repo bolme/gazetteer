@@ -197,7 +197,10 @@ and timestamps.
 
 ```
 $ gaz preview annotations.json
-annotations.json  118 B  modified 2026-02-14  created 2026-01-30
+================================================================
+annotations.json
+118 B  ·  modified 2026-02-14  ·  created 2026-01-30  ·  stdlib-json
+================================================================
 
 {
   "image": "0001.jpg",
@@ -207,18 +210,39 @@ annotations.json  118 B  modified 2026-02-14  created 2026-01-30
   "label": "car"
 }
 
-Showing all 8 lines (method: stdlib-json). Complete.
+Showing all 8 lines. Complete.
 ```
 
-```
-$ gaz preview report.docx
-report.docx  46.1 KB  modified 2026-03-02  created 2026-03-02
+HTML, RST, Org, LaTeX, EPUB, and Jupyter notebooks are rendered to
+Markdown rather than shown raw. They're technically readable as text, but
+in a bounded preview the boilerplate wins: an HTML file's first 50 lines
+are often doctype, `<meta>` tags, and inline CSS before any prose.
+Markdown keeps the headings, lists, and tables in far fewer lines.
 
-[converted markdown, up to 50 lines]
-
-Showing 50 of 812 lines (method: pandoc). Re-run with --full to see
-everything, or `gaz convert` to save it to a file.
 ```
+$ gaz preview report.html
+=================================================================================
+report.html
+551 B  ·  modified 2026-07-28  ·  created 2026-07-28  ·  pandoc (html -> markdown)
+=================================================================================
+
+# Quarterly Report
+
+Revenue grew **12%** over the prior quarter.
+
+## Regions
+
+| Region | Revenue |
+|--------|---------|
+| North  | \$1.2M  |
+| South  | \$0.9M  |
+
+Showing all 13 lines. Complete.
+```
+
+Without `pandoc` these fall back to the raw source with a note — unlike a
+`.docx`, raw HTML is still legible. (`.epub` is the exception: it's a zip
+archive, so it fails outright.)
 
 `--full` shows the whole file regardless of `--max-lines`. If no converter
 is available for a format, `preview` fails with a message naming exactly

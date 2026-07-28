@@ -14,21 +14,31 @@ import click
 from gazetteer import convert, report, walk
 
 
-def _metadata_header(path: str) -> str:
-    """One-line file summary shown above previewed content.
+def _metadata_header(path: str, method: str) -> str:
+    """Banner shown above previewed content.
 
     Size/timestamps are often as useful as the content for orientation
     ("is this the file I meant, and is it current?"), and they're the one
     thing the converted text can never tell you. Uses apparent size, not
     allocated blocks: this describes the file, not its disk footprint.
+
+    Ruled off above and below because the content underneath is arbitrary
+    text — frequently Markdown with its own `#` headings — and a bare line
+    of metadata would read as part of the document rather than as gaz's
+    framing of it. Rules do that with plain ASCII, no markup, consistent
+    with every other table gaz prints.
     """
     st = os.stat(path)
-    return (
-        f"{os.path.basename(path)}  "
-        f"{report.human_size(st.st_size)}  "
-        f"modified {report.human_date(st.st_mtime)}  "
-        f"created {report.human_date(walk.entry_ctime(st))}"
+    name = os.path.basename(path)
+    detail = (
+        f"{report.human_size(st.st_size)}  ·  "
+        f"modified {report.human_date(st.st_mtime)}  ·  "
+        f"created {report.human_date(walk.entry_ctime(st))}  ·  "
+        f"{method}"
     )
+    width = max(len(name), len(detail))
+    rule = "=" * width
+    return f"{rule}\n{name}\n{detail}\n{rule}"
 
 
 def _print_check_deps() -> None:
@@ -85,7 +95,7 @@ def preview(
     except convert.UnsupportedFormat as e:
         raise click.ClickException(str(e))
 
-    click.echo(_metadata_header(path))
+    click.echo(_metadata_header(path, result.method))
     click.echo()
 
     lines = result.text.splitlines()
@@ -96,18 +106,19 @@ def preview(
     if result.warning:
         click.echo(f"Warning: {result.warning}")
 
+    # The conversion method is named in the header, so the status line
+    # only has to answer "did I see all of it?"
     if not result.complete:
         click.echo(
-            f"Conversion did not finish (method: {result.method}). "
-            f"Output above may be empty or partial. Re-run with a larger "
-            f"--max-seconds, or use `gaz convert` to write the full result "
-            f"to a file."
+            "Conversion did not finish. Output above may be empty or "
+            "partial. Re-run with a larger --max-seconds, or use "
+            "`gaz convert` to write the full result to a file."
         )
     elif full or len(shown) == len(lines):
-        click.echo(f"Showing all {len(lines):,} lines (method: {result.method}). Complete.")
+        click.echo(f"Showing all {len(lines):,} lines. Complete.")
     else:
         click.echo(
-            f"Showing {len(shown):,} of {len(lines):,} lines (method: {result.method}). "
+            f"Showing {len(shown):,} of {len(lines):,} lines. "
             f"Re-run with --full to see everything, or `gaz convert` to save it to a file."
         )
 

@@ -40,10 +40,16 @@
 
 ### Added
 
-- **`gaz preview` shows a metadata header** — filename, size, and
-  modified/created dates — above the converted content, so a preview
-  answers "is this the file I meant, and is it current?" as well as
-  "what's in it."
+- **`gaz preview` shows a metadata banner** — filename, size,
+  modified/created dates, and the conversion method — ruled off above the
+  converted content, so a preview answers "is this the file I meant, and
+  is it current?" as well as "what's in it."
+- **HTML, RST, Org, LaTeX, EPUB, and Jupyter notebooks are rendered to
+  Markdown** instead of shown raw, keeping headings/lists/tables while
+  dropping doctype, `<meta>` tags, inline CSS, and layout markup — much
+  denser in a line-budgeted preview. Falls back to the raw source with a
+  note when `pandoc` is missing (except `.epub`, a zip archive, which
+  fails outright).
 - **`gaz preview --check-deps`** reports which converter each format would
   actually use (or what's missing), without needing a file to try it on.
 - **`gaz list --sort name|size|files|modified|created`** (default `name`)

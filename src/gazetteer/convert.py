@@ -59,6 +59,13 @@ _EXT_TO_FORMAT = {
     ".md": "md",
     ".markdown": "md",
     ".txt": "txt",
+    ".html": "html",
+    ".htm": "html",
+    ".rst": "rst",
+    ".org": "org",
+    ".tex": "latex",
+    ".epub": "epub",
+    ".ipynb": "ipynb",
 }
 
 # Formats pandoc's own format names for --from, when they differ from ours.
@@ -67,6 +74,36 @@ _PANDOC_FROM = {
     "pptx": "pptx",
     "xlsx": "xlsx",
 }
+
+# Text-based markup formats worth rendering to Markdown rather than
+# showing raw. These *are* readable as plain text in a strict sense, so
+# `_read_as_is` would "work" — but the signal-to-noise is bad: an HTML
+# file's first 50 lines are often doctype, meta tags, and inline CSS
+# before any prose, and RST/LaTeX/Org bury their content in markup too.
+# Markdown keeps the semantic structure (headings, lists, tables,
+# emphasis) in far fewer lines, which matters when the whole point is a
+# bounded preview.
+#
+# Rendered with pandoc's `gfm` writer specifically: plain `markdown`
+# appends attribute noise to headings (`# Title {#title .class}`), and
+# `markdown_strict` falls back to raw HTML for tables, which would
+# reintroduce exactly the noise this is meant to remove.
+#
+# Unlike the binary formats, there's an honest fallback when pandoc is
+# missing: show the raw source with a note. A .html file is still
+# legible unconverted; a .docx is not.
+_MARKUP_TO_MARKDOWN = {
+    "html": "html",
+    "rst": "rst",
+    "org": "org",
+    "latex": "latex",
+    "epub": "epub",
+    "ipynb": "ipynb",
+}
+
+# ...except .epub, which is a zip archive. Raw bytes are useless to a
+# human, so it's a hard failure without pandoc, like the office formats.
+_MARKUP_BINARY_FORMATS = {"epub"}
 
 
 @dataclass
@@ -95,11 +132,22 @@ _CONVERTER_REQUIREMENTS: list[tuple[str, list[tuple[str, str]], str]] = [
     ("pdf", [("binary", "pdftotext"), ("module", "pypdf")], "pdftotext ships with poppler"),
     ("yaml", [("module", "yaml")], "falls back to raw text if missing"),
     ("toml", [("module", "tomllib"), ("module", "tomli")], "tomllib is stdlib on 3.11+"),
+    ("html", [("binary", "pandoc")], "rendered to Markdown; raw source if missing"),
+    ("rst", [("binary", "pandoc")], "rendered to Markdown; raw source if missing"),
+    ("org", [("binary", "pandoc")], "rendered to Markdown; raw source if missing"),
+    ("latex", [("binary", "pandoc")], "rendered to Markdown; raw source if missing"),
+    ("ipynb", [("binary", "pandoc")], "rendered to Markdown; raw source if missing"),
+    ("epub", [("binary", "pandoc")], "archive; no raw fallback"),
     ("json", [], "stdlib"),
     ("xml", [], "stdlib"),
     ("csv", [], "stdlib"),
     ("md/txt", [], "read as-is"),
 ]
+
+# Formats that degrade to something still useful when their converter is
+# missing, rather than failing outright — reported "usable" by
+# --check-deps with the caveat in the detail column.
+_DEGRADES_GRACEFULLY = {"yaml", "toml", "html", "rst", "org", "latex", "ipynb"}
 
 
 def _have(kind: str, name: str) -> bool:
@@ -135,9 +183,7 @@ def check_dependencies() -> list[tuple[str, bool, str]]:
             detail = f"missing: {missing}"
             if note:
                 detail += f" ({note})"
-            # yaml/toml degrade to raw text rather than failing outright.
-            usable = fmt in ("yaml", "toml")
-            rows.append((fmt, usable, detail))
+            rows.append((fmt, fmt in _DEGRADES_GRACEFULLY, detail))
     return rows
 
 
@@ -201,6 +247,8 @@ def convert_to_text(
         return _pretty_xml(path)
     if fmt == "csv":
         return _pretty_csv(path)
+    if fmt in _MARKUP_TO_MARKDOWN:
+        return _convert_markup(path, fmt, max_seconds=max_seconds)
     if fmt in ("md", "txt"):
         return _read_as_is(path, method="text")
     if fmt == "binary":
@@ -297,6 +345,72 @@ def _library_errors(path: str, fmt: str, library: str):
             f"{type(e).__name__}: {e}. The file may be corrupt, truncated, "
             f"or not actually a .{fmt} file despite its extension."
         ) from e
+
+
+def _convert_markup(path: str, fmt: str, *, max_seconds: float) -> ConvertResult:
+    """Render a text markup format to Markdown for a denser preview.
+
+    Falls back to the raw source (with a note) when pandoc is missing or
+    fails, since these formats are still readable unconverted — except
+    the binary ones (.epub), where raw bytes help nobody.
+    """
+    is_binary = fmt in _MARKUP_BINARY_FORMATS
+
+    if shutil.which("pandoc"):
+        try:
+            proc = _run_subprocess(
+                [
+                    "pandoc",
+                    "--from", _MARKUP_TO_MARKDOWN[fmt],
+                    # gfm minus raw HTML passthrough: anything pandoc
+                    # can't express as Markdown is dropped rather than
+                    # emitted verbatim. On a document this changes
+                    # nothing; on an app-shell page of layout <div>s it's
+                    # the difference between 602 lines of content and
+                    # 1,742 lines of scaffolding (measured on a real
+                    # page). Preview wants the prose, not the chrome.
+                    "--to", "gfm-raw_html",
+                    "--strip-comments",
+                    path,
+                ],
+                max_seconds=max_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return ConvertResult(
+                text="", method="pandoc", complete=False,
+                warning=f"pandoc did not finish within {max_seconds}s",
+            )
+        if proc.returncode == 0:
+            return ConvertResult(
+                text=proc.stdout.decode("utf-8", errors="replace"),
+                method=f"pandoc ({fmt} -> markdown)",
+                warning=proc.stderr.decode("utf-8", errors="replace").strip() or None,
+            )
+        if is_binary:
+            raise UnsupportedFormat(
+                f"cannot read {path!r} as .{fmt} — pandoc failed: "
+                f"{proc.stderr.decode('utf-8', errors='replace').strip()}. "
+                f"The file may be corrupt or not actually a .{fmt} file."
+            )
+        result = _read_as_is(path, method=f"raw {fmt}")
+        result.warning = (
+            f"pandoc could not parse this as {fmt}; showing the raw source."
+        )
+        return result
+
+    if is_binary:
+        raise UnsupportedFormat(
+            f"cannot preview .{fmt} — it's an archive, and pandoc (which "
+            f"reads it) is not installed. See "
+            f"https://pandoc.org/installing.html."
+        )
+    result = _read_as_is(path, method=f"raw {fmt} (pandoc not installed)")
+    result.warning = (
+        f"pandoc not installed — showing raw {fmt} instead of Markdown. "
+        f"Install pandoc (https://pandoc.org/installing.html) for a denser, "
+        f"more readable preview."
+    )
+    return result
 
 
 def _convert_docx_python(path: str) -> ConvertResult:
