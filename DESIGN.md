@@ -228,6 +228,11 @@ formatting is what `--json` exists to skip):
 
 ## Cache
 
+> **Not built.** This section is the design for phase 2; `cache.py` is a
+> stub and no `gaz scan` command exists yet. Every v0 command does a live
+> bounded walk. Written in the present tense as a spec to build against,
+> not a description of current behavior.
+
 Repeat structural questions about the same tree are the common case, and re-walking
 terabytes to answer them is the main cost. `gaz scan` walks once and stores the result
 so later commands answer from the database in milliseconds.
@@ -442,7 +447,7 @@ gazetteer/
 ```
 
 Seven modules. Resist splitting further until one exceeds ~300 lines —
-`cli.py` has already blown past this (714 lines as of 0.1.2, six
+`cli.py` has already blown past this (~1,100 lines as of 0.1.3, seven
 commands each repeating the same walk/filter/render-or-json shape); see
 TODO.md's item on splitting it before adding another cross-cutting flag.
 

@@ -69,7 +69,7 @@ tests/              # one test file per source module, plus CLI-level test files
 - Size/duration parsing and formatting (`parse_size`, `parse_duration`,
   `human_size`, `human_duration`) live in `report.py`, not scattered inline.
 - Resist splitting a module further until it exceeds ~300 lines. `cli.py`
-  is already an exception (714 lines) — see TODO.md before adding another
+  is already an exception (~1,100 lines) — see TODO.md before adding another
   cross-cutting flag to all seven commands without addressing it.
 
 ## Conventions

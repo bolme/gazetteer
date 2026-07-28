@@ -58,9 +58,9 @@ item below should preserve both.
   best output per format? Research/docs task; code only if it finds an
   actual defect.
 - **[Improvement, M] `cli.py` has grown past its own 300-line
-  convention.** 714 lines (DESIGN.md/AGENTS.md say ~300) after several
-  rounds of adding a shared flag to all six commands, each repeating the
-  same walk/filter/render-or-json shape. A shared per-command dispatch
+  convention.** ~1,100 lines (DESIGN.md/AGENTS.md say ~300) after several
+  rounds of adding a shared flag to all seven commands, each repeating
+  the same walk/filter/render-or-json shape. A shared per-command dispatch
   (rows + a total dict in, JSON-or-table out) would cut the duplication.
   Needs a design pass on where the split falls before moving code.
 

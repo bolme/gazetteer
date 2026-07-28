@@ -10,6 +10,23 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 license-files = ["LICENSE"]
+keywords = ["filesystem", "cli", "du", "find", "disk-usage", "duplicates"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Filesystems",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
 dependencies = [
     "click>=8.1",
 ]
@@ -37,6 +54,24 @@ preview = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gazetteer"]
+
+# Spelled out rather than left to "everything not gitignored": that
+# default silently shipped local editor/tool config (.claude/) into the
+# sdist. An explicit list means a new dotfile directory can't leak.
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/gazetteer",
+    "tests",
+    "skills",
+    "scripts",
+    "README.md",
+    "DESIGN.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "TODO.md",
+    "LICENSE",
+    "pyproject.toml",
+]
 
 [tool.hatch.build]
 dev-mode-dirs = ["src"]

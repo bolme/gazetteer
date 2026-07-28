@@ -133,9 +133,9 @@ pointer to the correct form rather than a generic "no such option."
 
 ```
 $ gaz find "*.xml" /data/dataset --size ">1M"
-path                                type  size
-----------------------------------  ----  -----
-/data/dataset/train/ann/0042.xml    file  1.2 MB
+path                    type  size
+----------------------  ----  ------
+./train/ann/0042.xml    file  1.2 MB
 
 Scanned 1,204 dirs / 964,012 files in 6.1s. Complete.
 ```
@@ -147,13 +147,13 @@ single files across the whole subtree — the `du -a | sort -rn | head`
 answer. `--max-rows` is the N (default 50).
 
 ```
-$ gaz largest ~ --max-rows 4
+$ gaz largest /data/dataset --max-rows 4
 size     modified    path
--------  ----------  ------------------------------------------------
-27.7 GB  2026-07-25  ./exports/train_v3.tar
-16.8 GB  2026-06-11  ./exports/train_v2.tar
-14.1 GB  2026-03-30  ./checkpoints/epoch_120.pt
-7.1 GB   2026-06-27  ./raw/session_04.mp4
+-------  ----------  --------------------------------------
+4.2 GB   2026-03-14  ./exports/train_v3.tar
+1.8 GB   2026-02-02  ./exports/train_v2.tar
+612.0 MB 2026-03-14  ./checkpoints/epoch_120.pt
+418.0 MB 2026-01-19  ./raw/session_04.mp4
 
 Showing 4 of 964,012 files (7.0 GB of 118.4 GB).
 Total: 964,012 files, 118.4 GB
@@ -199,9 +199,9 @@ Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 
 ```
 $ gaz stale /data/dataset --older-than 180d --size ">100M"
-path                                age   size
-----------------------------------  ----  ------
-/data/dataset/exports/old_run.tar   210d  1.2 GB
+path                     age   size
+-----------------------  ----  ------
+./exports/old_run.tar    210d  1.2 GB
 
 Total: 1 files older than 180d, 1.2 GB
 Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
@@ -220,12 +220,16 @@ partial deletions or failed extraction jobs.
 ```
 $ gaz empty /data/dataset
 dir
-------------------------------------
-/data/dataset/train/images/.tmp_abc
+------------------------------
+./train/images/.tmp_abc/
 
-Total: 1 empty directories
+1 directories confirmed empty of 1,204 that were fully scanned.
 Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ```
+
+The count is only ever directories whose *entire* subtree was scanned. One
+merely discovered before the walk stopped is reported separately as
+unvisited, never mislabeled empty.
 
 ### `gaz preview` — a bounded, format-aware look inside one file
 

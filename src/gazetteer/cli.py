@@ -803,8 +803,7 @@ def empty(
     A directory is only reported as empty if its entire subtree was
     actually scanned — one merely *discovered* (an entry of a scanned
     parent) but not itself explored before the walk stopped is reported
-    separately as "unvisited," never mislabeled empty. See TODO.md's
-    now-resolved item on gaz empty's truncation caveat.
+    separately as "unvisited," never mislabeled empty.
     """
     result = walk.walk(
         path,

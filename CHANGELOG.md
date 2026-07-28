@@ -53,6 +53,15 @@
   `-P`/`--full-paths` for resolved absolute paths (a symlink renders as
   `link -> target` so it stays distinct from the directory it points at).
 
+### Packaging
+
+- **Local editor config (`.claude/`) no longer ships in the sdist.**
+  hatchling's default is "everything not gitignored," which silently
+  included it; the sdist contents are now listed explicitly so a new
+  dotfile directory can't leak into a release.
+- **Added PyPI classifiers and keywords.** Python 3.9/3.11/3.12/3.13 are
+  each verified by a full test run, not just declared.
+
 ### Added
 
 - **`gaz largest [PATH]`** — the biggest individual files anywhere beneath

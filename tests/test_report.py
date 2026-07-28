@@ -482,7 +482,8 @@ def test_suppress_catches_base64_of_repetitive_data():
         "an-article-slug-with-quite-a-few-hyphenated-words-strung-together",
         "a94064512ab34cd9f0e1b2c3d4e5f60718293a4b",  # sha1: under the threshold
         # Regression: a long URL slug matched as one run when `-` was in
-        # the character class, and got suppressed as data.
+        # the character class, and got suppressed as data. Length here is
+        # the point — this is 130+ chars, past _ENCODED_CERTAIN_LENGTH.
         "https://example.com/interviews/after-revisiting-the-fourth-season-"
         "ratings-with-cast-comments-on-watching-episodes-together-and-the-"
         "cancellation-more",
