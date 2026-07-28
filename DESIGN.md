@@ -42,7 +42,10 @@ never arrives. This is the whole product. Do not add a feature that can run unbo
 | Permission errors | Skip, count, report total at the end | One unreadable directory should not kill a 4-hour scan |
 | Output | Plain aligned text by default, `--json` for machines | Plain text is compact in LLM context; `rich` markup is not |
 | Exit code | Always `0` on a successful run, including partial ones | Partial is a normal outcome, not an error. Status goes in the output. |
-| `find`'s PATTERN | Positional argument, not `--pattern` (unlike `tree`/`ext`/`stale`) | It's `find`'s one required argument, not an optional filter layered on top of a walk — a positional signals that. A user coming from `--pattern` on another command who types `gaz find --pattern ...` anyway gets a `find`-specific error pointing at the correct form (`FindCommand` in `cli.py`), rather than growing a second, redundant way to spell the same thing. |
+| `find`'s PATTERN | Positional argument, not `--pattern` (unlike `list`/`ext`/`stale`) | It's `find`'s one required argument, not an optional filter layered on top of a walk — a positional signals that. A user coming from `--pattern` on another command who types `gaz find --pattern ...` anyway gets a `find`-specific error pointing at the correct form (`FindCommand` in `cli.py`), rather than growing a second, redundant way to spell the same thing. |
+| `list`'s depth | Always exactly one level; no `--recursive`, no `--depth` | Each subdirectory row already reports totals for its *whole* subtree, so a nested listing would re-answer at every level what one level answers once. Going deeper is `gaz list <that row>` — a second command invocation, not a second output mode. |
+| `list`'s incomplete rows | `*` after the directory name, once per row | A directory whose subtree wasn't fully scanned has counts that are floors, not totals. Marking the row once (`train/*`) rather than flagging each numeric cell keeps the table readable while still never presenting a partial number as if it were complete. |
+| Size measurement | Allocated blocks (`st_blocks * 512`) for space totals; `st_size` for per-file sizes and `--size` filters | See "Apparent vs. allocated size" below. |
 
 ## Traversal order
 
@@ -91,6 +94,39 @@ Three independent budgets, each with a flag. `0` means unlimited for all three.
 The status line names whichever budget actually stopped the walk (never a
 budget the caller left unlimited), so the re-run suggestion is always
 something that would actually help.
+
+## Apparent vs. allocated size
+
+A file has two sizes, and conflating them produces answers that are wrong
+by orders of magnitude:
+
+- **Apparent size** (`st_size`) — the length a program reading the file
+  sees.
+- **Allocated size** (`st_blocks * 512`) — the disk space it actually
+  occupies. This is what `du` reports.
+
+They coincide for ordinary files and diverge wildly for two common cases:
+**sparse files** (VM disk images, preallocated databases) and
+**cloud-sync placeholders** (iCloud/Dropbox dataless files). A real
+example that motivated this: a Colima VM image reported 100 GB apparent
+while occupying 7 MB of blocks, which made `gaz` claim a 1 GB directory
+held 120 GB. Across one real home directory the gap was 136 GB — over
+half the reported total.
+
+gaz's central question is "what is using my disk," so **space totals use
+allocated size** (`WalkEntry.size`, `WalkResult.n_bytes`, every
+directory total, `dup`'s reclaimable figure — deleting a file frees
+blocks, not apparent bytes).
+
+**Per-file sizes and `--size` filters use apparent size**
+(`WalkEntry.apparent_size`). "How big is this file" and "`--size +1M`"
+are questions about content length: a 5-byte file occupying one 4 KB
+block is still a 5-byte file, and a `--size` filter that matched it
+against 4096 would be surprising. `gaz list --json` emits both per row.
+
+The one visible oddity is that small files show as one block (`4.0 KB`)
+in `gaz list`'s size column. That's correct — it's the space they cost —
+and it keeps a directory's total equal to the sum of its rows.
 
 ## Excluding directories
 
@@ -180,10 +216,10 @@ formatting is what `--json` exists to skip):
 | Command | Row keys | `total` keys |
 |---|---|---|
 | `ext` | `ext, count, total_size, median_size` | `files, bytes, filtered` |
-| `tree` | `dir, n_files, total_size` | `dirs, files, bytes, filtered, recursive` |
+| `list` | `name, path, type, n_files, n_dirs, size, apparent_size, mtime, complete` (`ctime` with `--fields created`) | `dirs, files, bytes, filtered, sort` |
 | `find` | `path, type, size` | `matches` |
 | `stale` | `path, age_seconds, size, suspicious_mtime` | `files, bytes, older_than, filtered, n_suspicious_mtime` |
-| `empty` | `dir` | `empty_dirs, unvisited_dirs` |
+| `empty` | `dir` | `empty_dirs, unvisited_dirs, scanned_dirs` |
 | `dup` | `path, copies, size_each, reclaimable` | `duplicate_sets, reclaimable_bytes, hash_complete, hash_stop_reason, n_hashed` |
 
 ## Cache
@@ -278,7 +314,7 @@ Numbers are a lower bound. Re-run: gaz scan /data --max-seconds 600
 
 `gaz preview FILE` and `gaz convert FILE -o OUT` look *inside* a single
 file rather than answering structural questions about a tree — the
-natural next step after `gaz find`/`gaz tree` locates something worth
+natural next step after `gaz find`/`gaz list` locates something worth
 reading. Both share one dispatch function, `convert.convert_to_text()`.
 
 - **preview**: bounded to a terminal. Converts the file to readable text,
@@ -349,6 +385,14 @@ What actually shipped in v0 beyond this original three-command scope:
 `gaz dup`, `gaz stale`, `gaz empty` (cleanup-focused commands built on the
 same walker), and `gaz preview`/`gaz convert` (single-file inspection —
 see "Preview and convert" above). `gaz du` and `gaz scan` remain deferred.
+
+`gaz tree` above shipped and was later renamed **`gaz list`**, after real
+use showed the multi-level listing it implied was the wrong shape: a
+nested dump re-answers at every level what one level plus subtree totals
+answers once. `gaz list` shows a single level (like `ls`) where each
+subdirectory carries the totals for everything beneath it, which also
+made `--recursive` unnecessary — it was removed rather than kept as a
+second way to ask the same question.
 
 ## Later phases
 

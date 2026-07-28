@@ -31,10 +31,10 @@ def test_ext_accepts_extension_without_dot(tmp_path):
     assert ".py" not in result.output
 
 
-def test_tree_filters_by_pattern(tmp_path):
+def test_list_filters_by_pattern(tmp_path):
     _make_tree(tmp_path)
     runner = CliRunner()
-    result = runner.invoke(main, ["tree", str(tmp_path), "--pattern", "*.py"])
+    result = runner.invoke(main, ["list", str(tmp_path), "--pattern", "*.py"])
 
     assert result.exit_code == 0
     assert "Total (matching filter): " in result.output

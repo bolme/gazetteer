@@ -16,7 +16,10 @@ def test_empty_finds_empty_directories(tmp_path):
     assert "empty_dir" in result.output
     assert "also_empty" in result.output
     assert "has_files" not in result.output
-    assert "Total: 3 empty directories" in result.output
+    assert (
+        "3 directories confirmed empty of 5 that were fully scanned."
+        in result.output
+    )
 
 
 def test_empty_dir_with_only_empty_subdirs_is_empty(tmp_path):
@@ -40,10 +43,15 @@ def test_empty_does_not_falsely_report_unscanned_dirs_as_empty(tmp_path):
     (tmp_path / "c").mkdir()
 
     runner = CliRunner()
-    result = runner.invoke(main, ["empty", str(tmp_path), "--max-entries", "1"])
+    result = runner.invoke(
+        main, ["empty", str(tmp_path), "--max-entries", "1"]
+    )
 
     assert result.exit_code == 0
-    assert "Total (at least, walk stopped early): 0 empty directories" in result.output
+    assert (
+        "0 directories confirmed empty of 0 that were fully scanned."
+        in result.output
+    )
     assert "could not be confirmed empty or non-empty" in result.output
     assert "1 directories" in result.output
 
@@ -60,11 +68,16 @@ def test_empty_does_not_report_a_dir_whose_child_is_unscanned(tmp_path):
 
     runner = CliRunner()
     # root + parent scanned (2 dirs), maybe_empty only discovered.
-    result = runner.invoke(main, ["empty", str(tmp_path), "--max-entries", "3"])
+    result = runner.invoke(
+        main, ["empty", str(tmp_path), "--max-entries", "3"]
+    )
 
     assert result.exit_code == 0
-    assert "Total (at least, walk stopped early): 0 empty directories" in result.output
-    assert "parent" not in result.output.split("Total")[0]
+    assert (
+        "0 directories confirmed empty of 0 that were fully scanned."
+        in result.output
+    )
+    assert "parent" not in result.output.split("0 directories confirmed")[0]
 
 
 def test_empty_no_unvisited_caveat_when_walk_completes_and_nothing_out_of_scope(tmp_path):
@@ -91,7 +104,10 @@ def test_empty_max_depth_scope_is_not_reported_as_a_truncation(tmp_path):
     result = runner.invoke(main, ["empty", str(tmp_path), "--max-depth", "0"])
 
     assert result.exit_code == 0
-    assert "Total: 0 empty directories" in result.output
+    assert (
+        "0 directories confirmed empty of 0 that were fully scanned."
+        in result.output
+    )
     assert "--max-depth=0 kept their subtree out of scope" in result.output
     assert "walk stopped before" not in result.output
     assert "Complete." in result.output

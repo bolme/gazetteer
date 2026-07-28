@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 
 from gazetteer.walk import WalkResult
 
@@ -96,6 +97,18 @@ def human_duration(seconds: float) -> str:
     if seconds < 365 * 86400:
         return f"{seconds / (7 * 86400):.0f}w"
     return f"{seconds / (365 * 86400):.1f}y"
+
+
+def human_date(timestamp: float) -> str:
+    """Render a timestamp as a compact YYYY-MM-DD date.
+
+    Date-only (no clock time): `tree`'s date columns exist to answer "how
+    fresh is this directory," a question a date answers and a timestamp
+    only makes wider. `stale` still uses human_duration for relative ages.
+    """
+    if timestamp <= 0:
+        return "-"
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
 
 
 # Threshold for is_suspicious_mtime: within a week of the Unix epoch. Wide

@@ -14,7 +14,10 @@ def test_walk_counts_files_and_dirs(tmp_path):
     assert result.complete
     assert result.n_dirs == 3  # root, a, b
     assert result.n_files == 2
-    assert result.n_bytes == 10
+    # n_bytes is allocated blocks, not apparent length: two 5-byte files
+    # occupy a full block each, so this is >= 10, not == 10.
+    assert result.n_bytes >= 10
+    assert sum(e.apparent_size for e in result.entries if not e.is_dir) == 10
     assert result.n_errors == 0
 
 

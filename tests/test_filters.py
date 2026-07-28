@@ -5,7 +5,17 @@ from gazetteer.walk import WalkEntry
 
 
 def _entry(name, size=100, is_dir=False):
-    return WalkEntry(path=f"/{name}", parent="/", name=name, is_dir=is_dir, size=size, mtime=0)
+    # Ordinary file: apparent and allocated size agree. --size filters read
+    # apparent_size (see matches_filters), so it must be set, not left at 0.
+    return WalkEntry(
+        path=f"/{name}",
+        parent="/",
+        name=name,
+        is_dir=is_dir,
+        size=size,
+        apparent_size=size,
+        mtime=0,
+    )
 
 
 def test_matches_filters_no_filters_matches_everything():

@@ -1,11 +1,10 @@
 from click.testing import CliRunner
 
 from gazetteer.cli import main
-from gazetteer.report import human_size
 
 ALL_COMMANDS = [
     ["ext"],
-    ["tree"],
+    ["list"],
     ["find", "*"],
     ["stale"],
     ["empty"],
@@ -51,14 +50,14 @@ def test_ext_max_rows_zero_shows_every_row(tmp_path):
     assert "5 files" in result.output
 
 
-def test_tree_total_line_reflects_all_files_not_just_shown_rows(tmp_path):
+def test_list_total_line_reflects_all_files_not_just_shown_rows(tmp_path):
     for name in ("a", "b", "c"):
         d = tmp_path / name
         d.mkdir()
         (d / "f.txt").write_text("x")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["tree", str(tmp_path), "--max-rows", "1"])
+    result = runner.invoke(main, ["list", str(tmp_path), "--max-rows", "1"])
 
     assert result.exit_code == 0
     assert "Total: 4 dirs, 3 files" in result.output
@@ -100,9 +99,14 @@ def test_dup_handles_three_way_duplicate_set(tmp_path):
 
     assert result.exit_code == 0
     assert "Total: 1 duplicate sets" in result.output
-    # 3 copies of an N-byte file -> 2 * N bytes reclaimable
-    reclaimable = human_size(len(content) * 2)
-    assert reclaimable in result.output
+    # Reclaimable is disk blocks freed, not apparent bytes: deleting two
+    # copies of a tiny file frees the two blocks they occupied, so the
+    # figure is a multiple of the block size rather than 2 * len(content).
+    assert "reclaimable" in result.output
+    table_line = next(
+        line for line in result.output.splitlines() if str(tmp_path) in line
+    )
+    assert "3" in table_line.split()
     table_line = next(
         line for line in result.output.splitlines() if str(tmp_path) in line
     )
@@ -149,7 +153,10 @@ def test_empty_root_itself_is_reported_when_it_has_no_files(tmp_path):
 
     assert result.exit_code == 0
     assert str(tmp_path) in result.output
-    assert "Total: 1 empty directories" in result.output
+    assert (
+        "1 directories confirmed empty of 1 that were fully scanned."
+        in result.output
+    )
 
 
 def test_empty_no_warning_when_walk_completes(tmp_path):
@@ -240,20 +247,20 @@ def test_ext_total_is_unqualified_when_walk_completes(tmp_path):
     assert "at least" not in result.output
 
 
-def test_tree_total_is_qualified_when_walk_truncated(tmp_path):
+def test_list_total_is_qualified_when_walk_truncated(tmp_path):
     _many_files(tmp_path)
     runner = CliRunner()
-    result = runner.invoke(main, ["tree", str(tmp_path), "--max-entries", "5"])
+    result = runner.invoke(main, ["list", str(tmp_path), "--max-entries", "5"])
 
     assert result.exit_code == 0
     assert "Total (at least, walk stopped early):" in result.output
 
 
-def test_tree_total_mentions_both_filter_and_truncation(tmp_path):
+def test_list_total_mentions_both_filter_and_truncation(tmp_path):
     _many_files(tmp_path)
     runner = CliRunner()
     result = runner.invoke(
-        main, ["tree", str(tmp_path), "--max-entries", "5", "--ext", ".txt"]
+        main, ["list", str(tmp_path), "--max-entries", "5", "--ext", ".txt"]
     )
 
     assert result.exit_code == 0

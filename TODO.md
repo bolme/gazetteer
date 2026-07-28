@@ -49,18 +49,20 @@ item below should preserve both.
   accumulated relative path threaded through `walk.py`'s loop, which
   `is_excluded` doesn't currently see.
 - **[Feature, S] No way to answer "what are the N largest files here?"**
-  `gaz tree --recursive` answers biggest *directories*, not biggest
-  *files* — `du -a | sort -rn | head` has no gaz equivalent, despite
-  every walk already collecting `WalkEntry.size`. Candidate: a `gaz
-  largest [PATH]` command or a `--largest N` mode, sort-and-truncate
-  over `result.entries`.
+  `gaz list --sort size` answers biggest *direct children* of one
+  directory, not biggest *files* anywhere beneath it — `du -a | sort -rn
+  | head` still has no gaz equivalent, despite every walk already
+  collecting `WalkEntry.size`. Candidate: a `gaz largest [PATH]` command
+  or a `--largest N` mode, sort-and-truncate over `result.entries`.
 - **[Improvement, S] Text-table output doesn't say when `--max-rows`
-  hid rows.** `gaz ext --max-rows 3` on a tree with 10 extensions prints
-  3 rows and a *correct* `Total:` count, but nothing says "3 of 10 shown"
-  — `--json`'s `total` dict lets a script reconstruct this, but the text
-  table gives a human no equivalent cue. Violates the same "never present
-  a partial number as if it were total" principle the walk-truncation
-  status line already follows; extend it to row truncation too.
+  hid rows** — on every command except `gaz list`. `gaz ext --max-rows 3`
+  on a tree with 10 extensions prints 3 rows and a *correct* `Total:`
+  count, but nothing says "3 of 10 shown" — `--json`'s `total` dict lets
+  a script reconstruct this, but the text table gives a human no
+  equivalent cue. Violates the same "never present a partial number as if
+  it were total" principle the walk-truncation status line already
+  follows. `gaz list` now prints `Showing N of M entries.`; port that to
+  `ext`/`find`/`stale`/`empty`/`dup`.
 
 ### P2
 
@@ -123,8 +125,12 @@ item below should preserve both.
 - **Bounded `--json` output** on all six commands: one shared envelope
   (`report.json_output` — `rows`, `complete`, `stop_reason`, counts,
   `total`), still respects `--max-rows`. Schema in DESIGN.md.
-- **`gaz tree --recursive`**: rolls up each row's totals to its full
-  subtree (like `du -d1`) instead of direct children only.
+- **`gaz tree` became `gaz list`**: one level, each subdirectory row
+  carrying its whole subtree's totals; `--recursive` removed, plus
+  `--sort`/`--fields`/`-P`, a default `modified` column, and `*` marking
+  incompletely-scanned subtrees.
+- **Sizes now measure allocated blocks, not `st_size`**, so totals match
+  `du` — a sparse VM image no longer reports 100 GB while using 7 MB.
 - Added **`skills/gaz-usage/SKILL.md`** covering non-obvious usage
   (default budgets, `--exclude`, sampling, reading the status line).
 - **`gaz stale`** flags timestamps within a week of the Unix epoch with

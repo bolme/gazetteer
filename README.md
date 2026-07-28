@@ -80,30 +80,47 @@ ext   count    total_size  median_size
 Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ```
 
-### `gaz tree` — per-directory file counts and sizes
+### `gaz list` — list a directory, with subtree totals
 
-Depth-limited structure with a running total, sorted by size. Each row is
-that directory's *direct* children by default; add `--recursive` to roll
-up each row's total to include its whole subtree instead (like `du -d1`),
-using the same walk data — no extra filesystem cost.
+Like `ls`, but every subdirectory reports how many files and how many
+bytes live anywhere beneath it — the question `ls` can't answer. Rows are
+the direct children of the listed directory only; the counts they carry
+are what makes one level enough.
 
 ```
-$ gaz tree /data/dataset --max-depth 2
-dir                     n_files  total_size
-----------------------  -------  ----------
-/data/dataset/train     820,451  98.1 GB
-/data/dataset/val       102,340  14.2 GB
-/data/dataset/test      60,221   6.1 GB
+$ gaz list /data/dataset
+name       n_files  size      modified
+---------  -------  --------  ----------
+train/     820,451  98.1 GB   2026-03-14
+val/       102,340  14.2 GB   2026-03-14
+test/      60,221   6.1 GB    2026-03-14
+README.md  -        4.2 KB    2026-01-08
 
-Total: 3 dirs, 983,012 files, 118.4 GB
+Total: 1,204 dirs, 983,012 files, 118.4 GB
 Scanned 1,204 dirs / 964,012 files in 8.2s. Complete.
 ```
+
+Sort with `--sort name|size|files|modified|created` (`--reverse` flips it;
+directories always sort before files). Add columns with `--fields
+created|dirs|path`, and `-P`/`--full-paths` swaps names for resolved
+absolute paths (a symlink shows as `link -> target`, so it stays
+distinguishable from the directory it points at).
+
+A `*` after a directory name (`train/*`) means the walk stopped before
+that subtree was fully scanned, so its counts and sizes are lower bounds
+rather than totals.
+
+Sizes are the disk space actually used (allocated blocks, like `du`), not
+the files' apparent length. The difference matters: a sparse VM image or
+an un-downloaded cloud file can claim 100 GB while occupying a few MB.
+`--size` filters still match apparent length, since `--size +1M` is a
+question about content, not blocks — see [DESIGN.md](DESIGN.md).
 
 ### `gaz find` — bounded pattern search
 
 Filters during the walk rather than after it, so a narrow search over a
 huge tree doesn't pay the cost of collecting everything first. Unlike
-`tree`/`ext`/`stale`, `PATTERN` here is positional, not `--pattern` — this
+`list`/`ext`/`stale`, `PATTERN` here is positional, not `--pattern` — this
 is intentional (see DESIGN.md), and `gaz find --pattern ...` errors with a
 pointer to the correct form rather than a generic "no such option."
 
@@ -281,15 +298,16 @@ directory, not just complete coverage of whichever one happened to be
 scanned first while its siblings go undiscovered.
 
 ```
-$ gaz tree /data/dataset --max-entries 50
-dir                     n_files  total_size
-----------------------  -------  ----------
-/data/dataset/train     12       1.2 GB
-/data/dataset/val       8        340 MB
-/data/dataset/test      6        290 MB
-/data/dataset/docs      3        14 KB
+$ gaz list /data/dataset --max-entries 50
+name     n_files  size     modified
+-------  -------  -------  ----------
+train/*  12       1.2 GB   2026-03-14
+val/*    8        340 MB   2026-03-14
+test/*   6        290 MB   2026-03-14
+docs/    3        14 KB    2026-02-02
 
 Total (at least, walk stopped early): 5 dirs, 29 files, 1.8 GB
+* marks a directory whose subtree wasn't fully scanned — its counts and sizes are lower bounds, not totals.
 Stopped at the 50 entries limit ...
 ```
 
@@ -321,7 +339,7 @@ blocked by PyPI's name policy), typed as `gaz`.
 
 ## Status
 
-v0: the bounded walker plus `ext`, `tree`, `find`, `dup`, `stale`, `empty`,
+v0: the bounded walker plus `ext`, `list`, `find`, `dup`, `stale`, `empty`,
 and the single-file `preview`/`convert` pair. No caching yet — every
 command does a live bounded walk or a live conversion. See
 [DESIGN.md](DESIGN.md)'s "Later phases" for what's planned (a

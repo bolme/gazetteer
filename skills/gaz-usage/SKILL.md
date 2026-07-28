@@ -12,12 +12,12 @@ covers practices that aren't obvious from `--help` text alone.
 
 ## Start broad and cheap, then narrow
 
-Run `gaz tree` or `gaz ext` with default budgets first to get the shape of
+Run `gaz list` or `gaz ext` with default budgets first to get the shape of
 a tree before writing a narrow query. Don't guess `--pattern`/`--ext`/`--size`
 filters up front — they're for narrowing *after* you know roughly what's
 there. `gaz find` is the exception: it's for a specific known pattern, and
 takes `PATTERN` positionally (`gaz find "*.jpg" /data`), not as `--pattern`
-— that's intentional, `tree`/`ext`/`stale` use `--pattern` but `find`'s
+— that's intentional, `list`/`ext`/`stale` use `--pattern` but `find`'s
 whole job *is* the pattern.
 
 ## Treat the status line as load-bearing
@@ -93,20 +93,40 @@ treating `rows` as the full answer; `--json` doesn't relax the
 "truncated is not exhaustive" rule, it just makes the truncation
 programmatically checkable.
 
-## `gaz tree --recursive` for subtree totals
+## `gaz list` is one level, and that's enough
 
-Default `gaz tree` rows are each directory's *direct* children only — a
-parent directory with a huge subtree can look small if its files all live
-several levels down. Add `--recursive` when you want each row to reflect
-its whole subtree (like `du -d1`), e.g. to find which top-level directory
-is actually consuming the most space.
+`gaz list` lists the direct children of one directory — like `ls`, not
+like `tree`. It doesn't recurse into the output, because each
+subdirectory row already carries the totals for its *whole* subtree, so
+"which top-level directory is eating the space" is answerable from a
+single listing. To go deeper, run `gaz list` again on the row that looks
+interesting; that's the intended loop.
+
+Sort with `--sort size` (or `files`/`modified`/`created`; default `name`,
+`--reverse` flips it) and add columns with `--fields created|dirs|path`.
+Use `-P` when you need paths you can paste into another command.
+
+A `*` after a directory name (`Documents/*`) means the walk stopped
+before that subtree was fully scanned — its counts and sizes are floors,
+not totals. Raise `--max-seconds` if you need the real figure.
+
+## Sizes are disk usage, not file length
+
+Size columns and totals report allocated blocks, matching `du` — not the
+files' apparent length. This matters when reporting to a user: a sparse
+VM disk image or an un-downloaded cloud file can claim 100 GB of apparent
+size while occupying a few MB, and gaz deliberately reports the few MB.
+If a user compares gaz against `ls -l` and sees a discrepancy on such a
+file, gaz is measuring space consumed and `ls` is showing length; both
+are right about different questions. `--size` filters match apparent
+length, and `gaz list --json` gives you both (`size`, `apparent_size`).
 
 ## Command cheat sheet
 
 | Command | Question it answers |
 |---|---|
 | `gaz ext` | What kinds of files are here, and how much space does each kind use? |
-| `gaz tree` | What's the per-directory breakdown (counts, sizes)? |
+| `gaz list` | What's in this directory, and how big is each subdirectory's whole subtree? |
 | `gaz find PATTERN` | Where are files matching this specific glob? |
 | `gaz stale` | What hasn't been touched in a while? |
 | `gaz empty` | What directories are dead weight (no files anywhere under them)? |

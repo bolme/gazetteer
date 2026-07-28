@@ -12,7 +12,7 @@ def _make_wide_shallow_tree(tmp_path, n_top_dirs=6):
 
 ALL_WALK_COMMANDS = [
     ["ext"],
-    ["tree"],
+    ["list"],
     ["find", "*"],
     ["stale"],
     ["empty"],
@@ -36,26 +36,37 @@ def test_all_walk_commands_accept_shuffle_and_seed(tmp_path):
         assert result.exit_code == 0, f"{cmd[0]} --shuffle --seed failed: {result.output}"
 
 
-def test_tree_default_is_breadth_first(tmp_path):
+# Traversal order is asserted through `find` rather than `list`: find lists
+# every match at any depth, so what the walk reached is directly visible in
+# its rows. `list` lists one level only (its rows are always the root's
+# direct children regardless of how deep the walk got), which makes it
+# unable to distinguish BFS from DFS.
+def test_default_is_breadth_first(tmp_path):
     _make_wide_shallow_tree(tmp_path, n_top_dirs=6)
     runner = CliRunner()
-    result = runner.invoke(main, ["tree", str(tmp_path), "--max-entries", "7", "--max-rows", "20"])
+    result = runner.invoke(
+        main, ["find", "*", str(tmp_path), "--max-entries", "7", "--max-rows", "20"]
+    )
 
     assert result.exit_code == 0
+    # BFS sees all six top-level dirs before descending to any deep.txt.
     assert "deep.txt" not in result.output
-    # Complete or not, "Stopped at" confirms the budget was hit as expected.
     assert "Stopped at the 7 entries limit" in result.output
 
 
-def test_tree_depth_first_flag_reaches_deeper(tmp_path):
+def test_depth_first_flag_reaches_deeper(tmp_path):
     _make_wide_shallow_tree(tmp_path, n_top_dirs=6)
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["tree", str(tmp_path), "--max-entries", "4", "--depth-first", "--max-rows", "20"],
+        [
+            "find", "*", str(tmp_path),
+            "--max-entries", "4", "--depth-first", "--max-rows", "20",
+        ],
     )
 
     assert result.exit_code == 0
+    # DFS dives into the first branch instead of covering the top level.
     assert "nested" in result.output
 
 
@@ -96,7 +107,7 @@ def test_depth_first_and_shuffle_compose_without_error(tmp_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["tree", str(tmp_path), "--depth-first", "--shuffle", "--seed", "1"],
+        ["list", str(tmp_path), "--depth-first", "--shuffle", "--seed", "1"],
     )
 
     assert result.exit_code == 0

@@ -24,18 +24,28 @@ def test_ext_json_output(tmp_path):
     assert exts == {".txt", ".jpg"}
 
 
-def test_tree_json_output_recursive(tmp_path):
-    (tmp_path / "a").mkdir()
-    (tmp_path / "a" / "f.txt").write_text("x")
+def test_list_json_output(tmp_path):
+    (tmp_path / "a" / "nested").mkdir(parents=True)
+    (tmp_path / "a" / "nested" / "f.txt").write_text("x")
+    (tmp_path / "top.txt").write_text("xx")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["tree", str(tmp_path), "--json", "--recursive"])
+    result = runner.invoke(main, ["list", str(tmp_path), "--json"])
     data = _parse(result)
 
-    assert data["total"]["recursive"] is True
-    dirs = {row["dir"]: row["n_files"] for row in data["rows"]}
-    assert dirs[str(tmp_path)] == 1
-    assert dirs[str(tmp_path / "a")] == 1
+    assert data["total"]["sort"] == "name"
+    rows = {row["name"]: row for row in data["rows"]}
+    # One level only: "nested" is not a row, but its file counts toward a/.
+    assert set(rows) == {"a/", "top.txt"}
+    assert rows["a/"]["type"] == "dir"
+    assert rows["a/"]["n_files"] == 1
+    assert rows["a/"]["n_dirs"] == 1
+    assert rows["a/"]["complete"] is True
+    assert rows["top.txt"]["type"] == "file"
+    # size is allocated blocks (>= the 2 bytes written); apparent_size is
+    # the literal length. They diverge on sparse and cloud-placeholder files.
+    assert rows["top.txt"]["apparent_size"] == 2
+    assert rows["top.txt"]["size"] >= 2
 
 
 def test_find_json_output(tmp_path):

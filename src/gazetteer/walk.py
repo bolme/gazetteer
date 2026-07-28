@@ -49,8 +49,53 @@ class WalkEntry:
     parent: str
     name: str
     is_dir: bool
+    # Bytes actually allocated on disk (st_blocks * 512), which is what
+    # `du` reports and what "where did my space go" means. For a sparse
+    # file or a cloud placeholder this is far below `apparent_size`; see
+    # _entry_size for why that's the default rather than st_size.
     size: int
     mtime: float
+    # st_size: the length a program reading the file sees. Equal to `size`
+    # for an ordinary file, wildly larger for a sparse/dataless one.
+    apparent_size: int = 0
+    # Creation time where the platform tracks it (st_birthtime on macOS/BSD),
+    # falling back to st_ctime elsewhere — which is metadata-change time, not
+    # creation. Named `ctime` rather than `created` so the fallback isn't
+    # misrepresented as something stronger than it is; see _entry_ctime.
+    ctime: float = 0.0
+
+
+def _entry_ctime(stat_result: os.stat_result) -> float:
+    """Best available creation time for a stat result.
+
+    macOS/BSD expose a real creation time as st_birthtime; Linux does not,
+    so st_ctime (inode-change time) is the closest stand-in. Callers that
+    surface this to a user should say "created/changed," not "created."
+    """
+    return getattr(stat_result, "st_birthtime", stat_result.st_ctime)
+
+
+def _entry_size(stat_result: os.stat_result) -> int:
+    """Bytes this file actually occupies on disk.
+
+    st_size is the file's *apparent* length, which for a sparse file (VM
+    disk images, database preallocation) or a cloud-sync placeholder
+    (iCloud/Dropbox dataless files) can be orders of magnitude larger than
+    the space it consumes — a 100 GB VM image using 7 MB of real blocks is
+    a real case, not a hypothetical. Since gaz exists to answer "what is
+    using my disk," it reports allocated blocks like `du` does, and keeps
+    st_size alongside as `apparent_size` for the questions where the
+    logical length is the right answer.
+
+    st_blocks is POSIX-only and counts 512-byte units by definition
+    (independent of the filesystem's block size). Where it's unavailable
+    (Windows), fall back to st_size — apparent and allocated size coincide
+    there for ordinary files anyway.
+    """
+    blocks = getattr(stat_result, "st_blocks", None)
+    if blocks is None:
+        return stat_result.st_size
+    return blocks * 512
 
 
 @dataclass
@@ -195,8 +240,10 @@ def walk(
                         parent=dir_path,
                         name=entry.name,
                         is_dir=False,
-                        size=stat_result.st_size,
+                        size=_entry_size(stat_result),
+                        apparent_size=stat_result.st_size,
                         mtime=stat_result.st_mtime,
+                        ctime=_entry_ctime(stat_result),
                     )
                 )
                 result.n_files += 1
@@ -213,6 +260,7 @@ def walk(
                         is_dir=True,
                         size=0,
                         mtime=stat_result.st_mtime,
+                        ctime=_entry_ctime(stat_result),
                     )
                 )
                 if not cross_fs and stat_result.st_dev != root_dev:
@@ -226,12 +274,14 @@ def walk(
                         parent=dir_path,
                         name=entry.name,
                         is_dir=False,
-                        size=stat_result.st_size,
+                        size=_entry_size(stat_result),
+                        apparent_size=stat_result.st_size,
                         mtime=stat_result.st_mtime,
+                        ctime=_entry_ctime(stat_result),
                     )
                 )
                 result.n_files += 1
-                result.n_bytes += stat_result.st_size
+                result.n_bytes += _entry_size(stat_result)
         else:
             # Only reached if the for-loop above ran to completion without
             # `break`ing on a budget check — i.e. every entry in this

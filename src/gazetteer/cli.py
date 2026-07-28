@@ -6,6 +6,7 @@ import os
 import statistics
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 
 import click
 
@@ -140,24 +141,85 @@ def ext(
     click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
-@main.command()
+# gaz list's sortable/displayable columns. Each maps to a key function
+# over a ListRow; "name" sorts ascending (alphabetical), every other key
+# sorts descending by default since "biggest/newest first" is the useful
+# reading for sizes and dates.
+LIST_SORT_KEYS = {
+    "name": lambda r: r.name.lower(),
+    "size": lambda r: r.size,
+    "files": lambda r: r.n_files,
+    "modified": lambda r: r.mtime,
+    "created": lambda r: r.ctime,
+}
+
+# Columns beyond the always-on ones, addable via --fields.
+LIST_OPTIONAL_FIELDS = ("created", "dirs", "path")
+
+
+@dataclass
+class ListRow:
+    """One line of `gaz list` output — a direct child of the listed dir."""
+
+    name: str          # display name, "src/" for dirs
+    path: str          # absolute path
+    is_dir: bool
+    n_files: int       # files anywhere beneath (subtree), or 1 for a file
+    n_dirs: int        # subdirectories anywhere beneath
+    size: int          # allocated bytes beneath (or own), what `du` reports
+    apparent_size: int  # summed st_size — differs on sparse/cloud files
+    mtime: float
+    ctime: float
+    complete: bool     # False if this dir's subtree wasn't fully scanned
+
+
+# Registered as "list" but named list_dir in Python — `list` is a builtin,
+# and shadowing it in module scope is exactly the kind of thing that bites
+# someone later.
+@main.command("list")
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option(
-    "--recursive",
+    "-P",
+    "--full-paths",
     is_flag=True,
     help=(
-        "Roll up each directory's totals to include its full subtree, not "
-        "just direct children (like `du -d1` rather than direct-children-only). "
-        "Still bounded by the same walk budgets — no extra filesystem cost, "
-        "just a different aggregation of data the walk already collected."
+        "Show fully-resolved absolute paths (symlinks resolved) instead of "
+        "names relative to PATH."
+    ),
+)
+@click.option(
+    "--sort",
+    "sort_key",
+    type=click.Choice(sorted(LIST_SORT_KEYS)),
+    default="name",
+    show_default=True,
+    help="Column to sort by. Directories are always listed before files.",
+)
+@click.option(
+    "--reverse",
+    is_flag=True,
+    help="Reverse the sort order.",
+)
+@click.option(
+    "--fields",
+    "extra_fields",
+    multiple=True,
+    type=click.Choice(LIST_OPTIONAL_FIELDS),
+    help=(
+        "Add an optional column: created (creation/change date), dirs "
+        "(subdirectory count), path (full path alongside the name). "
+        "Repeatable."
     ),
 )
 @limit_options
 @traversal_options
 @filter_options
-def tree(
+def list_dir(
     path: str,
-    recursive: bool,
+    full_paths: bool,
+    sort_key: str,
+    reverse: bool,
+    extra_fields: tuple[str, ...],
     max_seconds: float,
     max_entries: int,
     max_rows: int,
@@ -171,7 +233,13 @@ def tree(
     patterns: tuple[str, ...],
     size_filters: tuple[str, ...],
 ) -> None:
-    """Depth-limited structure with per-directory file counts and sizes."""
+    """List a directory's contents, with subtree totals for each subdirectory.
+
+    Like `ls`, but every subdirectory reports how many files and how many
+    bytes live anywhere beneath it — the question `ls` can't answer and
+    `du` only answers for directories. One level only: rows are the direct
+    children of PATH, never a nested listing.
+    """
     result = walk.walk(
         path,
         max_seconds=max_seconds,
@@ -183,44 +251,146 @@ def tree(
         seed=seed,
     )
 
-    stats: dict[str, list[int]] = defaultdict(list)
+    root = os.path.abspath(path)
+    is_filtered = bool(extensions or patterns or size_filters)
+
+    # Every directory's parent, so a file's size can be walked up to
+    # whichever top-level child of root contains it.
+    parent_of = {e.path: e.parent for e in result.entries if e.is_dir}
+
+    def top_level_ancestor(dir_path: str) -> str | None:
+        """The direct child of root that contains dir_path (or itself)."""
+        current = dir_path
+        while current != root:
+            parent = parent_of.get(current)
+            if parent is None:
+                return None
+            if parent == root:
+                return current
+            current = parent
+        return None
+
+    # Aggregate every matching file into the top-level child containing it.
+    subtree_files: dict[str, int] = defaultdict(int)
+    subtree_bytes: dict[str, int] = defaultdict(int)
+    subtree_apparent: dict[str, int] = defaultdict(int)
+    subtree_dirs: dict[str, int] = defaultdict(int)
+    direct_children: list[WalkEntry] = []
+    matched_files = 0
+    matched_bytes = 0
+
     for entry in result.entries:
+        if entry.parent == root:
+            direct_children.append(entry)
         if entry.is_dir:
+            ancestor = top_level_ancestor(entry.path)
+            if ancestor is not None and entry.path != ancestor:
+                subtree_dirs[ancestor] += 1
             continue
         if not matches_filters(entry, extensions, patterns, size_filters):
             continue
-        stats[entry.parent].append(entry.size)
+        matched_files += 1
+        matched_bytes += entry.size
+        if entry.parent == root:
+            continue
+        ancestor = top_level_ancestor(entry.parent)
+        if ancestor is not None:
+            subtree_files[ancestor] += 1
+            subtree_bytes[ancestor] += entry.size
+            subtree_apparent[ancestor] += entry.apparent_size
 
-    if recursive:
-        parent_of = {e.path: e.parent for e in result.entries if e.is_dir}
-        root = os.path.abspath(path)
-        n_files_by_dir: dict[str, int] = defaultdict(int)
-        bytes_by_dir: dict[str, int] = defaultdict(int)
-        for dir_path, sizes in stats.items():
-            current = dir_path
-            while True:
-                n_files_by_dir[current] += len(sizes)
-                bytes_by_dir[current] += sum(sizes)
-                if current == root:
-                    break
-                next_dir = parent_of.get(current)
-                if next_dir is None:
-                    break
-                current = next_dir
-        rows = [(d, n_files_by_dir[d], bytes_by_dir[d]) for d in n_files_by_dir]
-    else:
-        rows = [(dir_path, len(sizes), sum(sizes)) for dir_path, sizes in stats.items()]
-    rows.sort(key=lambda r: r[2], reverse=True)
+    # A subdirectory's totals are only trustworthy if its whole subtree was
+    # scanned — same rule gaz empty uses. Anything unscanned beneath it
+    # makes its numbers a lower bound, flagged with a trailing "+".
+    unknown_dirs = {d for d in parent_of if d not in result.scanned_dirs}
+    for d in list(unknown_dirs):
+        current = parent_of.get(d)
+        while current and current not in unknown_dirs:
+            unknown_dirs.add(current)
+            if current == root:
+                break
+            current = parent_of.get(current)
 
-    matched_files = sum(len(sizes) for sizes in stats.values())
-    matched_bytes = sum(sum(sizes) for sizes in stats.values())
-    is_filtered = bool(extensions or patterns or size_filters)
+    rows: list[ListRow] = []
+    for entry in direct_children:
+        if entry.is_dir:
+            rows.append(
+                ListRow(
+                    name=entry.name + "/",
+                    path=entry.path,
+                    is_dir=True,
+                    n_files=subtree_files.get(entry.path, 0),
+                    n_dirs=subtree_dirs.get(entry.path, 0),
+                    size=subtree_bytes.get(entry.path, 0),
+                    apparent_size=subtree_apparent.get(entry.path, 0),
+                    mtime=entry.mtime,
+                    ctime=entry.ctime,
+                    complete=entry.path not in unknown_dirs,
+                )
+            )
+        elif matches_filters(entry, extensions, patterns, size_filters):
+            rows.append(
+                ListRow(
+                    name=entry.name,
+                    path=entry.path,
+                    is_dir=False,
+                    n_files=1,
+                    n_dirs=0,
+                    size=entry.size,
+                    apparent_size=entry.apparent_size,
+                    mtime=entry.mtime,
+                    ctime=entry.ctime,
+                    complete=True,
+                )
+            )
+
+    # Directories first, then the chosen key. "name" reads best ascending;
+    # sizes/counts/dates read best largest-or-newest first, so they default
+    # to descending and --reverse flips whichever default applies.
+    descending = sort_key != "name"
+    if reverse:
+        descending = not descending
+    key_fn = LIST_SORT_KEYS[sort_key]
+    rows.sort(key=key_fn, reverse=descending)
+    rows.sort(key=lambda r: not r.is_dir)
+
+    def resolved_path(row: ListRow) -> str:
+        """Absolute path with symlinks resolved.
+
+        A symlink resolves to its target, which can be the same path as
+        another row's (a link and the directory it points at both appear
+        in a listing). Marked with "-> " so the two stay distinguishable
+        rather than printing as identical duplicate rows.
+        """
+        real = os.path.realpath(row.path)
+        if os.path.islink(row.path):
+            return f"{row.path} -> {real}"
+        return real
+
+    def display_path(row: ListRow) -> str:
+        if full_paths:
+            return resolved_path(row)
+        return "./" + os.path.relpath(row.path, root) + ("/" if row.is_dir else "")
+
+    shown = report.limit_rows(rows, max_rows)
 
     if json_output:
-        json_rows = [
-            {"dir": dir_path, "n_files": n_files, "total_size": total}
-            for dir_path, n_files, total in report.limit_rows(rows, max_rows)
-        ]
+        json_rows = []
+        for row in shown:
+            json_row = {
+                "name": row.name,
+                "path": os.path.realpath(row.path) if full_paths else row.path,
+                "type": "dir" if row.is_dir else "file",
+                "n_files": row.n_files,
+                "n_dirs": row.n_dirs,
+                "size": row.size,
+                "apparent_size": row.apparent_size,
+                "mtime": row.mtime,
+                "complete": row.complete,
+            }
+            if "created" in extra_fields:
+                json_row["ctime"] = row.ctime
+            json_rows.append(json_row)
         click.echo(
             report.json_output(
                 result,
@@ -230,25 +400,63 @@ def tree(
                     "files": matched_files,
                     "bytes": matched_bytes,
                     "filtered": is_filtered,
-                    "recursive": recursive,
+                    "sort": sort_key,
                 },
             )
         )
         return
 
-    truncated_rows = [
-        (dir_path, n_files, report.human_size(total))
-        for dir_path, n_files, total in report.limit_rows(rows, max_rows)
-    ]
-    click.echo(report.render_table(truncated_rows, ("dir", "n_files", "total_size")))
+    headers = ["name", "n_files"]
+    if "dirs" in extra_fields:
+        headers.append("n_dirs")
+    headers += ["size", "modified"]
+    if "created" in extra_fields:
+        headers.append("created")
+    if "path" in extra_fields and not full_paths:
+        headers.append("path")
+
+    table_rows = []
+    for row in shown:
+        # A trailing "*" on the name marks a directory whose subtree wasn't
+        # fully scanned — every number on that row is a floor, not a total.
+        # Marking the row once beats repeating a flag on each numeric cell.
+        name = display_path(row) if full_paths else row.name
+        if not row.complete:
+            name += "*"
+        # Counts are a directory question; a plain file's "1 file, 0 dirs"
+        # is noise, so those cells stay blank and the eye goes to the dirs.
+        cells = [
+            name,
+            f"{row.n_files:,}" if row.is_dir else "-",
+        ]
+        if "dirs" in extra_fields:
+            cells.append(f"{row.n_dirs:,}" if row.is_dir else "-")
+        cells += [
+            report.human_size(row.size),
+            report.human_date(row.mtime),
+        ]
+        if "created" in extra_fields:
+            cells.append(report.human_date(row.ctime))
+        if "path" in extra_fields and not full_paths:
+            cells.append(os.path.realpath(row.path))
+        table_rows.append(tuple(cells))
+
+    click.echo(report.render_table(table_rows, tuple(headers)))
     click.echo()
 
+    if len(shown) < len(rows):
+        click.echo(f"Showing {len(shown):,} of {len(rows):,} entries.")
     dirs_label = "dirs walked" if is_filtered else "dirs"
     click.echo(
         f"{report.total_label(result, filtered=is_filtered)}: "
         f"{result.n_dirs:,} {dirs_label}, {matched_files:,} files, "
         f"{report.human_size(matched_bytes)}"
     )
+    if any(not r.complete for r in shown):
+        click.echo(
+            "* marks a directory whose subtree wasn't fully scanned — its "
+            "counts and sizes are lower bounds, not totals."
+        )
     click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
 
 
@@ -305,13 +513,16 @@ def find(
 
     if json_output:
         json_rows = [
-            {"path": m.path, "type": "dir" if m.is_dir else "file", "size": m.size}
+            {"path": m.path, "type": "dir" if m.is_dir else "file", "size": m.apparent_size}
             for m in truncated
         ]
         click.echo(report.json_output(result, json_rows, total={"matches": len(matches)}))
         return
 
-    rows = [(m.path, "dir" if m.is_dir else "file", report.human_size(m.size)) for m in truncated]
+    rows = [
+        (m.path, "dir" if m.is_dir else "file", report.human_size(m.apparent_size))
+        for m in truncated
+    ]
     click.echo(report.render_table(rows, ("path", "type", "size")))
     click.echo()
     click.echo(report.status_line(result, max_seconds=max_seconds, max_entries=max_entries))
@@ -382,7 +593,7 @@ def stale(
             {
                 "path": e.path,
                 "age_seconds": now - e.mtime,
-                "size": e.size,
+                "size": e.apparent_size,
                 "suspicious_mtime": report.is_suspicious_mtime(e.mtime),
             }
             for e in truncated
@@ -407,7 +618,7 @@ def stale(
             e.path,
             report.human_duration(now - e.mtime)
             + (" (?)" if report.is_suspicious_mtime(e.mtime) else ""),
-            report.human_size(e.size),
+            report.human_size(e.apparent_size),
         )
         for e in truncated
     ]
@@ -501,6 +712,7 @@ def empty(
 
     empty_dirs = sorted(all_dirs - non_empty_dirs - unknown_dirs)
     unvisited_dirs = sorted((all_dirs - non_empty_dirs) & unknown_dirs)
+    confirmed_dirs = all_dirs - unknown_dirs
     truncated = report.limit_rows(empty_dirs, max_rows)
 
     if json_output:
@@ -512,6 +724,7 @@ def empty(
                 total={
                     "empty_dirs": len(empty_dirs),
                     "unvisited_dirs": len(unvisited_dirs),
+                    "scanned_dirs": len(confirmed_dirs),
                 },
             )
         )
@@ -520,7 +733,10 @@ def empty(
     rows = [(d,) for d in truncated]
     click.echo(report.render_table(rows, ("dir",)))
     click.echo()
-    click.echo(f"{report.total_label(result)}: {len(empty_dirs):,} empty directories")
+    click.echo(
+        f"{len(empty_dirs):,} directories confirmed empty of "
+        f"{len(confirmed_dirs):,} that were fully scanned."
+    )
     if unvisited_dirs:
         if result.complete:
             # The walk itself finished; any unvisited dirs here are purely

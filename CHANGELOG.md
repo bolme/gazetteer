@@ -1,6 +1,45 @@
 # Changelog
 
-## 0.1.2 (unreleased)
+## 0.1.3 (unreleased)
+
+### Fixed
+
+- **Sizes now measure disk space actually used, not apparent length.**
+  gaz summed `st_size`, which for a sparse file or an un-downloaded
+  cloud-sync placeholder can be orders of magnitude larger than the space
+  it occupies — a Colima VM image reported 100 GB while using 7 MB of
+  blocks, making `gaz` claim a 1 GB directory held 120 GB. Space totals
+  now use allocated blocks (`st_blocks * 512`) and agree with `du`.
+  Per-file size columns and `--size` filters still use apparent length,
+  since "how big is this file" is a question about content; `gaz list
+  --json` emits both as `size` and `apparent_size`. **Behavior change:**
+  reported sizes will drop on trees containing sparse or cloud-placeholder
+  files, and small files now show as one block (e.g. `4.0 KB`) since that
+  is the space they cost.
+
+### Changed
+
+- **`gaz tree` is now `gaz list`, and lists exactly one level.** The old
+  command produced a nested, multi-level listing; each subdirectory row
+  now carries the file count and byte total for its *entire* subtree, so
+  one level answers "what's here and what's big" without the nesting. To
+  go deeper, run `gaz list` on the row you care about.
+- **`--recursive` removed** — subtree totals are now the only behavior,
+  leaving the flag nothing to mean.
+- **`gaz list` shows names, not full paths, by default.** Use
+  `-P`/`--full-paths` for resolved absolute paths (a symlink renders as
+  `link -> target` so it stays distinct from the directory it points at).
+
+### Added
+
+- **`gaz list --sort name|size|files|modified|created`** (default `name`)
+  with `--reverse`. Directories always sort before files.
+- **`gaz list --fields created|dirs|path`** to add optional columns; a
+  `modified` date column is now shown by default.
+- **`*` marks a directory whose subtree wasn't fully scanned** in `gaz
+  list`, so partial counts are never presented as totals.
+
+## 0.1.2
 
 ### Changed
 

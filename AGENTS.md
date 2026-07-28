@@ -92,6 +92,13 @@ tests/              # one test file per source module, plus CLI-level test files
 - **Symlinks:** not followed by default (loops are common in dataset
   trees). Filesystems are not crossed by default. Don't change either
   default without updating DESIGN.md's rationale table.
+- **Sizes:** `WalkEntry.size` is *allocated* bytes (`st_blocks * 512`,
+  what `du` reports); `WalkEntry.apparent_size` is `st_size`. Space
+  totals and anything answering "what's using my disk" use `size`;
+  per-file size columns and `--size` filters use `apparent_size`. They
+  differ by orders of magnitude on sparse files and cloud placeholders,
+  so never substitute one for the other casually — see DESIGN.md's
+  "Apparent vs. allocated size."
 - **Permission errors:** skip and count, never let one unreadable directory
   abort a multi-hour scan.
 - **Output:** plain aligned text, no `rich` markup — it's compact in an

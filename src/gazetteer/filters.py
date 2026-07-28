@@ -171,6 +171,11 @@ def matches_filters(
             return False
     for size_filter in size_filters:
         op, bound = report.parse_size_filter(size_filter)
-        if not _SIZE_OPS[op](entry.size, bound):
+        # Filters match the file's apparent length, not its allocated
+        # blocks: "--size -1K" means "files shorter than 1K," and a 5-byte
+        # file occupying one 4K block is still a 5-byte file. Allocated
+        # size is the right answer for "what's using my disk" (see
+        # walk._entry_size), but the wrong one for "how big is this file."
+        if not _SIZE_OPS[op](entry.apparent_size, bound):
             return False
     return True
