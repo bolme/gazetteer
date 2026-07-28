@@ -111,6 +111,104 @@ def human_date(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
 
 
+# Below this length, an encoded-looking run is shown verbatim: it's
+# cheap, and at short lengths the "is this data or a real word?" call is
+# unreliable enough that showing it is the safer error. A git SHA (40) or
+# a UUID-ish token stays visible; a data: URI payload does not.
+ENCODED_RUN_MIN_LENGTH = 64
+
+# How much of a suppressed run to keep as a recognizable fragment. Enough
+# to identify what it is (a PNG data URI and an SVG one differ in their
+# first few characters) without spending a line on it.
+_ENCODED_FRAGMENT = 16
+
+# Runs of base64/hex-ish characters. Deliberately not anchored to `data:`
+# URIs — the same flood arrives as inline SVG payloads, embedded font
+# blobs, JWTs, checksums in a manifest, and base64 in a JSON field. The
+# character class is standard base64's alphabet, which is a superset of
+# hex, so one pattern covers both.
+#
+# `-` and `_` are deliberately excluded even though base64url uses them:
+# including them made a long URL slug
+# ("after-revisiting-fbi-international-season-4-ratings-...") match as a
+# single 132-char run and get suppressed as data. Hyphens and underscores
+# are how human-readable identifiers separate words, so treating them as
+# run *boundaries* costs a little base64url coverage (those runs still
+# get caught in their inter-separator chunks, and the vowel test flags
+# them) and buys back every slug, kebab-case name, and snake_case
+# identifier in previewed text.
+_ENCODED_RUN_RE = re.compile(r"[A-Za-z0-9+/]{%d,}={0,2}" % ENCODED_RUN_MIN_LENGTH)
+
+# Natural text rarely produces a long unbroken alphanumeric run, but when
+# it does it's usually a real word or identifier rather than encoded data.
+# Requiring a mix of cases *or* digits, plus a low vowel rate, separates
+# "supercalifragilisticexpialidocious" and a long snake_case identifier
+# from "PHN2ZyBjbGFzcz0iaWNvbi1zdmciIGhlaWdodD0i".
+_VOWELS = set("aeiouAEIOU")
+_HEX_CHARS = set("0123456789abcdefABCDEF")
+
+
+# Past this length, an unbroken run is treated as data regardless of how
+# its characters happen to score. No natural-language word or identifier
+# runs this long without a space, hyphen, or underscore, and base64 of
+# repetitive input can otherwise mimic prose statistics — b64 of 300 'x'
+# bytes is "eHh4eHh4..." at a 33% vowel rate, indistinguishable from
+# English by that measure alone.
+_ENCODED_CERTAIN_LENGTH = 120
+
+
+def _looks_encoded(run: str) -> bool:
+    """True if `run` looks like encoded data rather than a long word."""
+    if len(run) >= _ENCODED_CERTAIN_LENGTH:
+        return True
+
+    # Pure hex is checked on its own: 'a'/'e' are hex digits, so a long
+    # hash scores misleadingly vowel-rich under the test below. At this
+    # length an all-hex run is a hash or a blob, never a word.
+    if all(c in _HEX_CHARS for c in run):
+        return True
+
+    has_digit = any(c.isdigit() for c in run)
+    has_upper = any(c.isupper() for c in run)
+    has_lower = any(c.islower() for c in run)
+    if not (has_digit or (has_upper and has_lower)):
+        return False
+    letters = [c for c in run if c.isalpha()]
+    if not letters:
+        return True  # all digits/symbols — a hash or an ID, not prose
+    vowel_rate = sum(1 for c in letters if c in _VOWELS) / len(letters)
+    # English runs ~38% vowels; base64 lands far below that.
+    return vowel_rate < 0.26
+
+
+def suppress_encoded_runs(text: str) -> tuple[str, int]:
+    """Replace long base64/hex-looking runs with a short placeholder.
+
+    Returns (text, n_suppressed). A single inline image can carry tens of
+    kilobytes of base64 in one line, which in a *bounded* preview is
+    strictly destructive: it costs the whole line budget (and, for an
+    agent, the context window) while conveying nothing a human or model
+    can read. The placeholder keeps what's actually informative — that
+    encoded data was here, how much, and enough of a fragment to tell a
+    PNG from an SVG.
+
+    Runs shorter than ENCODED_RUN_MIN_LENGTH are left alone; below that
+    the distinction between data and a legitimate token is too unreliable
+    to act on, and the cost of being wrong is higher than the noise.
+    """
+    n_suppressed = 0
+
+    def replace(match: re.Match) -> str:
+        nonlocal n_suppressed
+        run = match.group(0)
+        if not _looks_encoded(run):
+            return run
+        n_suppressed += 1
+        return f"{run[:_ENCODED_FRAGMENT]}… [{len(run):,} chars of encoded data suppressed]"
+
+    return _ENCODED_RUN_RE.sub(replace, text), n_suppressed
+
+
 # Threshold for is_suspicious_mtime: within a week of the Unix epoch. Wide
 # enough to catch "reset to exactly 0" and the handful of nearby values
 # some tools use (e.g. 1 for FAT's "no timestamp"), narrow enough that a

@@ -50,6 +50,12 @@
   denser in a line-budgeted preview. Falls back to the raw source with a
   note when `pandoc` is missing (except `.epub`, a zip archive, which
   fails outright).
+- **`gaz preview` suppresses embedded base64/hex blobs**, replacing them
+  with `iVBORw0KGgoAAAAN… [12,847 chars of encoded data suppressed]`. A
+  single inline `data:` image could previously consume the entire preview
+  budget with unreadable noise. Runs under 64 chars are untouched;
+  `--raw` disables suppression. `gaz convert` is unaffected — it writes
+  the real bytes.
 - **`gaz preview --check-deps`** reports which converter each format would
   actually use (or what's missing), without needing a file to try it on.
 - **`gaz list --sort name|size|files|modified|created`** (default `name`)

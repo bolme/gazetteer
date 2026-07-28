@@ -135,6 +135,13 @@ pipe tables rather than doctype and inline CSS. If the method line says
 `raw html (pandoc not installed)`, that's the degraded path: the content
 is still correct, just noisier, and installing pandoc improves it.
 
+Embedded base64/hex blobs (inline images, fonts, hashes) are replaced
+with `[N chars of encoded data suppressed]`. Don't reach for `--raw` to
+"see the whole file" — the suppressed bytes are an encoded image, not
+content, and pasting them back into your context is exactly what the
+suppression exists to prevent. Use `--raw` only when the encoded value
+itself is what you're after (verifying a specific hash, say).
+
 If it errors, the message distinguishes two different problems: a missing
 converter ("install pandoc, or `pip install gaz[preview]`") versus a file
 that isn't what its extension claims ("python-docx failed: ... may be

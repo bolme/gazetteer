@@ -69,20 +69,36 @@ def _print_check_deps() -> None:
     help="Report which converter each format would use, then exit. Takes no PATH.",
 )
 @click.option(
+    "--raw",
+    is_flag=True,
+    help=(
+        "Don't suppress embedded base64/hex blobs (data: URIs, inline "
+        "images, hashes). Shows them in full."
+    ),
+)
+@click.option(
     "--max-seconds",
     default=30.0,
     show_default=True,
     help="Wall-clock budget for the conversion step (e.g. a pandoc/pdftotext subprocess).",
 )
 def preview(
-    path: str | None, max_lines: int, full: bool, check_deps: bool, max_seconds: float
+    path: str | None,
+    max_lines: int,
+    full: bool,
+    check_deps: bool,
+    raw: bool,
+    max_seconds: float,
 ) -> None:
     """Show a bounded, format-aware preview of a single file.
 
     Converts the file to readable text (pandoc/pdftotext for office and PDF
     formats, pretty-printing for JSON/YAML/TOML/XML/CSV, as-is for
     Markdown/plain text) and prints up to --max-lines of it, under a
-    one-line header naming the file's size and timestamps.
+    banner naming the file's size and timestamps.
+
+    Long runs of base64/hex (embedded images, hashes) are replaced with a
+    short placeholder — pass --raw to see them in full.
     """
     if check_deps:
         _print_check_deps()
@@ -95,16 +111,31 @@ def preview(
     except convert.UnsupportedFormat as e:
         raise click.ClickException(str(e))
 
+    text = result.text
+    n_suppressed = 0
+    if not raw:
+        # Before the line budget is applied, not after: a single data: URI
+        # can be tens of kilobytes on one line, and suppressing it after
+        # slicing would mean the blob had already eaten the budget it was
+        # flooding.
+        text, n_suppressed = report.suppress_encoded_runs(text)
+
     click.echo(_metadata_header(path, result.method))
     click.echo()
 
-    lines = result.text.splitlines()
+    lines = text.splitlines()
     shown = lines if full else lines[:max_lines]
     click.echo("\n".join(shown))
     click.echo()
 
     if result.warning:
         click.echo(f"Warning: {result.warning}")
+
+    if n_suppressed:
+        click.echo(
+            f"Suppressed {n_suppressed:,} run(s) of encoded data "
+            f"(base64/hex). Re-run with --raw to see them."
+        )
 
     # The conversion method is named in the header, so the status line
     # only has to answer "did I see all of it?"

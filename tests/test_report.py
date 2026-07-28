@@ -3,6 +3,7 @@ import pytest
 import json
 
 from gazetteer.report import (
+    ENCODED_RUN_MIN_LENGTH,
     human_duration,
     human_size,
     is_suspicious_mtime,
@@ -12,6 +13,7 @@ from gazetteer.report import (
     parse_size_filter,
     render_table,
     status_line,
+    suppress_encoded_runs,
     total_label,
 )
 from gazetteer.walk import WalkResult
@@ -414,3 +416,92 @@ def test_json_output_reports_errors():
     parsed = json.loads(json_output(result, [], total={}))
 
     assert parsed["n_errors"] == 5
+
+
+# --- suppress_encoded_runs --------------------------------------------
+# A single inline data: URI can carry tens of KB of base64 on one line,
+# which in a bounded preview costs the whole line budget (and an agent's
+# context) while conveying nothing readable.
+
+
+def test_suppress_replaces_long_base64_run():
+    import base64
+
+    blob = base64.b64encode(bytes(range(256))).decode()
+    text = f'<img src="data:image/png;base64,{blob}">'
+
+    out, n = suppress_encoded_runs(text)
+
+    assert n == 1
+    assert blob not in out
+    assert f"[{len(blob):,} chars of encoded data suppressed]" in out
+    # A leading fragment survives, so a PNG blob stays tellable from an SVG.
+    assert blob[:8] in out
+    assert len(out) < len(text)
+
+
+def test_suppress_leaves_short_runs_alone():
+    # Below the threshold the data-vs-token call is unreliable, and the
+    # cost of being wrong outweighs the noise.
+    short = "a" * (ENCODED_RUN_MIN_LENGTH - 1)
+    out, n = suppress_encoded_runs(short)
+
+    assert n == 0
+    assert out == short
+
+
+def test_suppress_catches_long_hex_hash():
+    # 'a'/'e' are hex digits, so a hash scores deceptively vowel-rich —
+    # pure hex needs its own check.
+    sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    out, n = suppress_encoded_runs(f"checksum: {sha256}")
+
+    assert n == 1
+    assert sha256 not in out
+
+
+def test_suppress_catches_base64_of_repetitive_data():
+    # Regression: b64 of repeated bytes is "eHh4eHh4..." at a ~33% vowel
+    # rate, which passes the prose heuristic. Length alone must settle it.
+    import base64
+
+    blob = base64.b64encode(b"x" * 300).decode()
+    out, n = suppress_encoded_runs(blob)
+
+    assert n == 1
+    assert "suppressed" in out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The quick brown fox jumps over the lazy dog and keeps on running along",
+        "supercalifragilisticexpialidociousandthensomemorewordshere",
+        "some_very_long_descriptive_function_name_for_testing_purposes_here",
+        "https://cdn.example.com/assets/EEPbqgguP7Rn9CUG33Na3a-1200-80.jpg",
+        "an-article-slug-with-quite-a-few-hyphenated-words-strung-together",
+        "a94064512ab34cd9f0e1b2c3d4e5f60718293a4b",  # sha1: under the threshold
+        # Regression: a long URL slug matched as one run when `-` was in
+        # the character class, and got suppressed as data.
+        "https://example.com/interviews/after-revisiting-the-fourth-season-"
+        "ratings-with-cast-comments-on-watching-episodes-together-and-the-"
+        "cancellation-more",
+        "a_very_long_snake_case_identifier_name_that_goes_on_and_on_here_yes",
+    ],
+)
+def test_suppress_does_not_touch_ordinary_text(text):
+    out, n = suppress_encoded_runs(text)
+
+    assert n == 0
+    assert out == text
+
+
+def test_suppress_counts_multiple_runs():
+    import base64
+
+    a = base64.b64encode(bytes(range(200))).decode()
+    b = base64.b64encode(bytes(range(100, 250))).decode()
+    out, n = suppress_encoded_runs(f"one {a} two {b} three")
+
+    assert n == 2
+    assert "one" in out and "two" in out and "three" in out

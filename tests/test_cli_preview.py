@@ -197,3 +197,64 @@ def test_preview_corrupt_docx_gives_clean_error_not_traceback(tmp_path):
     assert result.exit_code != 0
     assert "Traceback" not in result.output
     assert "fake.docx" in result.output
+
+
+def _b64_blob(n=300):
+    import base64
+
+    return base64.b64encode(bytes(range(256)) * (n // 256 + 1))[:n].decode()
+
+
+def test_preview_suppresses_embedded_base64(tmp_path):
+    blob = _b64_blob()
+    path = tmp_path / "img.json"
+    path.write_text('{"image": "data:image/png;base64,%s"}' % blob)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path)])
+
+    assert result.exit_code == 0
+    assert blob not in result.output
+    assert "chars of encoded data suppressed" in result.output
+    assert "Suppressed 1 run(s) of encoded data" in result.output
+
+
+def test_preview_raw_flag_shows_the_blob(tmp_path):
+    blob = _b64_blob()
+    path = tmp_path / "img.json"
+    path.write_text('{"image": "%s"}' % blob)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path), "--raw"])
+
+    assert result.exit_code == 0
+    assert blob in result.output
+    assert "suppressed" not in result.output
+
+
+def test_preview_suppression_happens_before_the_line_budget(tmp_path):
+    # A blob must not consume the --max-lines budget it was flooding, so
+    # suppression has to run before the slice, not after.
+    blob = _b64_blob(400)
+    lines = [f'{{"k{i}": "{blob}"}}' for i in range(5)]
+    path = tmp_path / "many.txt"
+    path.write_text("\n".join(lines))
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path), "--max-lines", "5"])
+
+    assert result.exit_code == 0
+    assert blob not in result.output
+    assert "Suppressed 5 run(s)" in result.output
+
+
+def test_preview_leaves_ordinary_content_untouched(tmp_path):
+    path = tmp_path / "notes.md"
+    path.write_text("# Title\n\nOrdinary prose that should survive intact.\n")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["preview", str(path)])
+
+    assert result.exit_code == 0
+    assert "Ordinary prose that should survive intact." in result.output
+    assert "suppressed" not in result.output

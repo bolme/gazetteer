@@ -244,6 +244,18 @@ Without `pandoc` these fall back to the raw source with a note — unlike a
 `.docx`, raw HTML is still legible. (`.epub` is the exception: it's a zip
 archive, so it fails outright.)
 
+Long runs of base64/hex — inline `data:` images, embedded fonts, hashes —
+are replaced with a short placeholder, since a single embedded image can
+carry tens of kilobytes on one line and eat the whole preview budget
+while conveying nothing readable:
+
+```
+"image": "data:image/png;base64,iVBORw0KGgoAAAAN… [12,847 chars of encoded data suppressed]",
+```
+
+Runs under 64 characters are left alone, and `--raw` disables suppression
+entirely. `gaz convert` never suppresses — it writes the real file.
+
 `--full` shows the whole file regardless of `--max-lines`. If no converter
 is available for a format, `preview` fails with a message naming exactly
 what to install — it never guesses or emits garbage. A file that's corrupt

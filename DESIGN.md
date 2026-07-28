@@ -365,11 +365,37 @@ still legible where an unconverted `.docx` is not. `.epub` is the
 exception — it's a zip archive, so it fails outright like the office
 formats.
 
-`gaz preview --check-deps` reports that ladder for every format — which
-converter would actually be chosen, or what's missing — without needing a
-file to try it on. It distinguishes formats that degrade gracefully
-(reported usable, with the caveat in the detail column) from those that
-fail outright. It's generated from `_CONVERTER_REQUIREMENTS`, kept
+**Encoded blobs are suppressed in `preview`, never in `convert`.**
+`report.suppress_encoded_runs()` replaces long base64/hex runs with
+`iVBORw0KGgoAAAAN… [12,847 chars of encoded data suppressed]`. A single
+inline `data:` image can carry tens of kilobytes on one line, which in a
+*bounded* preview is strictly destructive: it spends the entire line
+budget (and, for an agent, the context window) on something no human or
+model can read. Suppression runs *before* the `--max-lines` slice, so the
+blob can't consume the budget it was flooding. `--raw` opts out.
+`gaz convert` deliberately never suppresses — it writes a real file to
+disk, where the actual bytes are the point.
+
+Detection is heuristic, and tuned so that a false positive (hiding real
+text) is much worse than a false negative (leaking some noise):
+
+- Runs shorter than 64 chars are always shown. Below that the
+  data-vs-identifier call is unreliable, and a git SHA or a short token
+  is worth seeing.
+- Runs of 120+ chars are always suppressed. No word or identifier runs
+  that long without a separator, and this is the only test that catches
+  base64 of *repetitive* input — `base64(b"x" * 300)` is `"eHh4eHh4…"`,
+  a 33% vowel rate that reads as prose to any character-frequency test.
+- Between those bounds: pure hex is suppressed (checked separately, since
+  `a`/`e` are hex digits and make hashes score deceptively vowel-rich),
+  and otherwise a run needs mixed case or digits plus a sub-26% vowel
+  rate — English runs ~38%.
+
+`gaz preview --check-deps` reports the converter ladder for every format —
+which converter would actually be chosen, or what's missing — without
+needing a file to try it on. It distinguishes formats that degrade
+gracefully (reported usable, with the caveat in the detail column) from
+those that fail outright. It's generated from `_CONVERTER_REQUIREMENTS`, kept
 adjacent to the dispatch it describes so the two can't drift.
 
 **Every failure path returns an `UnsupportedFormat` with an actionable
