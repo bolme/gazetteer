@@ -1,236 +1,144 @@
-These are issues and feature ideas discovered through real usage, kept
-lower priority than active work but worth tracking. This is a living
-document — update it as new issues are discovered or remove items as
-they're fixed. Several of these come from a hands-on cleanup review
-(`GAZ_REVIEW.md`) of a large, real home directory (~175 GB, ~947K files,
-~53K directories) that hit gaz's default limits almost immediately —
-exactly the scale gaz is meant for, so its rough edges showed up fast.
+Issues and feature ideas from real usage, kept lower priority than
+active work. Living document — update as items are discovered or fixed.
+Items are unordered within their priority group; add new ones wherever
+they fit rather than renumbering anything.
 
-Two things worth keeping in view while triaging this list, since they're
-easy to under-value against feature requests like "add --json":
+Two reviews of the same real ~175GB/947K-file home directory motivated
+most of this: `GAZ_REVIEW.md` (v0.1.0, 5/10) and `GAZ_REVIEW_v0.1.2.md`
+(v0.1.2, 7/10 — confirmed the v0.1.0 fixes landed, found a new round of
+gaps at the same scale).
 
-- **gaz's job is partly to prevent information overload.** A tool that
-  dumps 947K rows is not more correct than one that reports "at least
-  53,402 dirs, lower bound" — it's just less honest about what got
-  read. Flooding a terminal or an LLM context window with raw output is
-  a failure mode gaz exists to avoid, even when a fix "would be more
-  complete."
-- **gaz's bounded walk is a speed/reliability guarantee, not just a
-  correctness nicety.** On HDD-backed or network-mounted storage, a
-  plain `find .` or `du -sh` can run for hours and never return —
-  something encountered repeatedly in agentic workflows, where a hung
-  `find` eventually has to be killed with nothing to show for it. Every
-  item below should keep that guarantee intact rather than trade it away
-  for completeness.
+**gaz is read-only — knowledge, not modification.** Both reviews asked
+for some form of deletion (`gaz rm`, `--dry-run`+`--confirm`, an
+`ncdu`-style interactive delete). Out of scope by design: gaz's job is
+to report state; acting on it is another tool's job (a script, `xargs`,
+an agent's next step). The answer to "gaz should help me delete things"
+is "make gaz's output good enough to hand to something that deletes
+things" (e.g. `--json`), not gaz growing a write path.
+
+**Also keep in view:** gaz's job is partly to *prevent* information
+overload (a truncated, honest "at least N" beats a flood of raw rows),
+and its bounded walk is a reliability guarantee, not just a nicety — on
+slow/networked storage, a plain `find`/`du` can hang for hours. Every
+item below should preserve both.
 
 ## Priority / difficulty key
 
-- **Priority:** P0 (fix soon, actively misleading) → P3 (nice to have,
-  no rush)
-- **Difficulty:** S (small, contained, hours) / M (medium, a design
-  choice plus a few files) / L (large, touches every command or needs
-  its own design pass)
-- **Type:** Bug (behaves incorrectly), Improvement (behaves correctly
-  but poorly), Feature (new capability)
+- **Priority:** P0 (fix soon, actively misleading) → P3 (nice to have)
+- **Difficulty:** S (hours) / M (a design choice + a few files) / L
+  (large, touches every command or needs its own design pass)
+- **Type:** Bug / Improvement / Feature
 
-## Suggested order of work
+## Open items
 
-1. cli.py has grown past its own 300-line convention — Improvement, P2, M
-2. No dry-run / preview-before-acting workflow for gaz dup — Feature, P3, S
-3. Add an MCP server interface — Feature, P3, L (deliberately last — wants a stable CLI surface first)
+### P1
 
-Rationale for the order: the cli.py split comes first since it's a
-maintainability concern flagged during a pre-release audit, not blocked
-on anything. The dry-run item is smaller and no longer blocked
-(structured output landed), so it comes before MCP, which is pushed to
-the end because it's the largest, most design-heavy change and should
-mirror whatever flags exist by then rather than be redesigned twice.
+- **[Bug, M] `gaz dup` is too slow to be useful on real huge trees.** On
+  a real 175GB/947K-file tree, only 48K of 904K same-size candidates got
+  hashed before the default `--max-hash-seconds` (30s) ran out — 94.7%
+  unhashed, with no visibility into how large the shortfall is or any
+  progress indication during the run. Reconsider the default (same
+  problem `--max-entries` had before it became opt-in), and/or surface
+  hashing progress and the hashed/total fraction more loudly than "lower
+  bound."
+- **[Feature, M] `--exclude` only matches directory basenames, not
+  paths.** No way to exclude `*/archive/` or a specific nested path
+  without also excluding every same-named directory elsewhere in the
+  tree. Add `--exclude-path` (glob against the relative/absolute path)
+  composing with `--exclude` the way `--skip-vendored` does. Needs the
+  accumulated relative path threaded through `walk.py`'s loop, which
+  `is_excluded` doesn't currently see.
+- **[Feature, S] No way to answer "what are the N largest files here?"**
+  `gaz tree --recursive` answers biggest *directories*, not biggest
+  *files* — `du -a | sort -rn | head` has no gaz equivalent, despite
+  every walk already collecting `WalkEntry.size`. Candidate: a `gaz
+  largest [PATH]` command or a `--largest N` mode, sort-and-truncate
+  over `result.entries`.
+- **[Improvement, S] Text-table output doesn't say when `--max-rows`
+  hid rows.** `gaz ext --max-rows 3` on a tree with 10 extensions prints
+  3 rows and a *correct* `Total:` count, but nothing says "3 of 10 shown"
+  — `--json`'s `total` dict lets a script reconstruct this, but the text
+  table gives a human no equivalent cue. Violates the same "never present
+  a partial number as if it were total" principle the walk-truncation
+  status line already follows; extend it to row truncation too.
 
-Ten items that were previously on this list have been fixed and
-verified — see the "Recently resolved" section at the bottom for what
-changed and how it was tested.
+### P2
 
-## Items, in suggested order
+- **[Improvement, S] `preview`/`convert` fail unhelpfully when a
+  converter is missing.** DESIGN.md promises a clear "here's what to
+  install" error, but a real run saw a cryptic failure — audit whether
+  every code path (subprocess failure vs. missing binary vs. missing
+  optional lib) actually routes through that message, and add a
+  `--check-deps` diagnostic reporting which converters are available.
+- **[Improvement, S] `gaz preview` shows no file metadata before
+  content.** No filename/size/create/modified/accessed line before the
+  converted text — often as useful as the content itself for quick
+  orientation. Small: a header using the same `human_size`/
+  `human_duration` formatting every other command already uses.
+- **[Improvement, S] Audit converter priority order for
+  preview/convert.** The `pandoc` → optional-lib → error ordering in
+  DESIGN.md was chosen before real files had been run through it. Worth
+  a real pass now: does the documented first choice actually produce the
+  best output per format? Research/docs task; code only if it finds an
+  actual defect.
+- **[Improvement, M] `cli.py` has grown past its own 300-line
+  convention.** 714 lines (DESIGN.md/AGENTS.md say ~300) after several
+  rounds of adding a shared flag to all six commands, each repeating the
+  same walk/filter/render-or-json shape. A shared per-command dispatch
+  (rows + a total dict in, JSON-or-table out) would cut the duplication.
+  Needs a design pass on where the split falls before moving code.
 
-### 1. cli.py has grown past its own 300-line module-splitting convention
-**Improvement · Priority P2 · Difficulty M**
+### P3 — large/speculative, own design pass needed before code
 
-Both DESIGN.md and AGENTS.md say "resist splitting further until a
-module exceeds ~300 lines" — `cli.py` is now 714 lines (found during a
-pre-release audit), more than double that, after several rounds of
-adding a new flag (`--exclude`, `--json`, `--recursive`) to all six
-commands. Each command already follows an identical shape (walk, filter,
-branch on `--json`, render table, print totals/status) with the
-boilerplate duplicated six times — a real refactor opportunity, not just
-a line-count problem: a shared per-command dispatch (e.g. each command
-returns rows + a total dict, one function renders either JSON or table)
-would cut the duplication and make it structurally harder for one
-command's `--json` branch to drift from the others' shape. Medium
-effort: needs a design pass on where the split lines fall (one module
-per command? a shared "render or JSON" helper before splitting file
-boundaries?) before moving code, and full regression testing since it
-touches every command's dispatch path.
-
-### 2. No dry-run / preview-before-acting workflow for gaz dup
-**Feature · Priority P3 · Difficulty S**
-
-`gaz dup` (and any future command that suggests deletions) has no way to
-preview *what specifically* would be affected before a user acts on it
-outside the tool — today that means manually copying paths out of the
-table. This is lower priority than the items above since gaz doesn't
-delete anything itself (it only reports), but worth considering a
-`--script` or `--emit-paths` style output tailored to feeding into a
-review step or a deletion command. `gaz dup --json` now exists and
-already gives every field a script would need (`path`, `copies`,
-`size_each`, `reclaimable` per row) — this item is really about whether
-a dedicated dry-run UX adds anything `--json | jq` doesn't already cover
-for a script/second-agent consumer, or whether it's only worth it for
-a human-facing preview mode.
-
-### 3. Add an MCP server interface
-**Feature · Priority P3 · Difficulty L**
-
-DESIGN.md's Phase 4 already calls this out: expose the same commands as
-MCP tools. The bounded-output-plus-explicit-completeness-signal contract
-gaz already has is exactly what an agent needs to avoid acting on
-partial data without knowing it's partial — this is arguably gaz's best
-fit for agentic use, more so than the CLI itself, since an agent calling
-gaz as a tool gets the same "safe, bounded" guarantee that makes it
-useful over a raw `find`/`du` shellout that might hang for the ten
-minutes an agent doesn't have. Deliberately last: it's a large effort in
-its own right (tool schema, server lifecycle, packaging). The CLI
-surface (`--exclude`, `--json`, `--recursive`) is now settled enough
-that the MCP tool schema can mirror it directly rather than being
-designed twice.
+- **[Feature, L] Sampling-based fast size estimation.** Randomly sample
+  root-to-leaf paths (tracking branching, depth, sizes/ages), repeat N
+  times, statistically estimate the tree's totals — for trees too large
+  for even a bounded walk to usefully cover. Different guarantee than
+  everything else gaz does (an estimate with error bars, not an observed
+  lower bound) — needs its own honest-presentation design before code.
+- **[Feature, L] LLM-based captioning for images/visual formats.**
+  Configure a multimodal LLM to caption images, convert PDF/PPTX pages
+  to images first. Pulls in a network dependency and API-key config
+  nothing else in gaz needs, and raises a real question about how "an
+  LLM's opinion" fits gaz's bounded/factual contract.
+- **[Feature, L] Integrate with OS search indexes** (Spotlight, Windows
+  Search) for a fast candidate list instead of a full walk.
+  Platform-specific; trades "walks the real filesystem" for "trusts a
+  possibly-stale external index," which needs its own staleness story.
+- **[Feature, L] Integrate with OS quick-preview tools** (Quick Look,
+  Windows Preview) instead of gaz's own `pandoc`/`pdftotext` stack. Most
+  render to an image/GUI window, not text — needs a design layer
+  (screenshot + OCR?) shared with the LLM-captioning idea above.
+- **[Feature, L] MCP server interface.** DESIGN.md's Phase 4. gaz's
+  bounded-output-plus-completeness-signal contract is exactly what an
+  agent needs, but this is a large standalone effort (tool schema,
+  server lifecycle, packaging) — deliberately last, so the schema can
+  mirror a settled CLI surface instead of being designed twice.
 
 ## Recently resolved
 
-- **No bounded machine-readable output format.** Every command now
-  accepts `--json` (added to `filters.limit_options`, so it's uniform
-  across all six) as an alternative to the text table, not an addition
-  to it — still respects `--max-rows`, so a truncated JSON `rows` array
-  shows the same number of rows the text table would. One shared
-  envelope (`report.json_output`): `rows`, `complete`, `stop_reason`,
-  `n_dirs`, `n_files`, `n_errors`, `elapsed`, `total` — mirroring
-  `WalkResult` directly rather than requiring a consumer to parse the
-  natural-language status line. Each command has its own row shape
-  (raw numeric values, no `human_size`/`human_duration` formatting) and
-  `total` dict; `dup` folds its second hashing pass into `complete` via
-  the same override pattern as `total_label`. Schema documented in
-  DESIGN.md's new "Structured output (--json)" section. Tested in
-  `tests/test_report.py` (`json_output` directly: valid JSON, truncation
-  reflected, `complete` override, error counts) and
-  `tests/test_cli_json.py` (one happy-path test per command, `--max-rows`
-  respected, a truncated walk's `complete`/`stop_reason` surfacing
-  correctly); manually verified all six commands produce parseable JSON
-  with `python3 -m json.tool`.
-- **gaz tree had no recursive/rollup size mode.** Added `--recursive`:
-  each row's `n_files`/`total_size` now includes its full subtree
-  (walking up from every directory that directly contains matched files
-  to every ancestor, using the same `parent_of` map pattern `gaz empty`
-  already used) instead of just direct children, matching `du -d1`
-  rather than `ls`. Still bounded by the same walk budgets — pure
-  aggregation over data the walk already collected, no extra filesystem
-  cost. Default (no flag) behavior is unchanged. Tested in the new
-  `tests/test_cli_tree.py` (direct-children-only default, recursive
-  rollup at multiple depths, interaction with `--ext` filtering, and
-  that the Total line is unaffected); manually verified against a
-  nested fixture tree.
-- **Added a SKILL doc for using gaz effectively.**
-  `skills/gaz-usage/SKILL.md` covers what isn't obvious from `--help`
-  alone: start broad with `tree`/`ext` before narrowing, treat the
-  status line's completeness/re-run guidance as load-bearing, know which
-  budgets are on by default (`--max-seconds` only) versus opt-in
-  (`--max-entries`), use `--exclude`/`--skip-vendored` to keep noise out
-  of results and free up budget, use `--shuffle`/`--seed` for
-  representative sampling, and read `gaz stale`'s `(?)` epoch-mtime
-  flag correctly. Docs-only, no code risk; no automated test, but
-  reviewed against the original TODO checklist item-by-item for
-  coverage.
-- **`gaz stale` reported timestamp-reset artifacts indistinguishably
-  from genuinely old files.** Files with `st_mtime` reset to (or near)
-  the Unix epoch by some other tool — a cache, archive, or sync tool —
-  read as "gaz is wrong" rather than "this file's timestamp is
-  suspicious." `report.is_suspicious_mtime()` flags any mtime within a
-  week of epoch; `gaz stale` appends `(?)` to that row's age and prints
-  a one-line summary count when any are found. Tested in
-  `tests/test_report.py` (boundary values around the epoch window) and
-  `tests/test_cli_stale.py` (a flagged epoch-reset file next to a
-  genuinely old file, and the no-false-positive case with nothing
-  suspicious present).
-- **`gaz find --pattern` failed with a generic "no such option" instead
-  of pointing at the correct positional form.** `find` intentionally
-  takes `PATTERN` positionally (it's the command's one required
-  argument, not an optional filter layered on a walk — documented in
-  DESIGN.md's decision table), unlike `tree`/`ext`/`stale`'s
-  `--pattern` option, which made `gaz find --pattern ...` a natural but
-  wrong guess. Making `PATTERN` accept both an alias option and a
-  positional turned out to be genuinely ambiguous with click (a
-  positional `PATH` argument after `--pattern VALUE` gets bound to the
-  wrong slot), so the fix is a `FindCommand(click.Command)` subclass
-  that intercepts the literal `--pattern` token and raises a `find`-
-  specific `UsageError` naming the correct form, while every other
-  unknown option still gets click's normal error. Tested in
-  `tests/test_cli_filters.py` (the `--pattern` error message, and that
-  positional `PATTERN` still works).
-- **No --exclude / path-ignore flag; gaz dup couldn't separate real
-  duplicates from vendored noise.** `walk()` now accepts `exclude: tuple[
-  str, ...]` — glob patterns matched against a directory's basename — and
-  prunes matching directories *before* descent: they're never scanned,
-  never appear in `result.entries`, and never count against
-  `--max-entries`, so excluding a noisy subtree actually frees up budget
-  rather than just filtering it from output afterward. Exposed as a
-  repeatable `--exclude PATTERN` option threaded through all six commands
-  via `filters.limit_options`. `gaz dup --skip-vendored` builds on it: an
-  opt-in flag that adds a curated list of common package-manager
-  directory names (`cli.VENDORED_DIR_NAMES` — `node_modules`,
-  `site-packages`, `.venv`, `vendor`, etc.) to the exclude set, composing
-  with any explicit `--exclude` rather than replacing it. Tested in
-  `tests/test_walk.py` (pruning, budget exemption, glob patterns, root
-  never excluded), `tests/test_cli_filters.py` (`--exclude` on multiple
-  commands, repeatability, budget interaction), and `tests/test_cli_dup.py`
-  (`--skip-vendored` alone and combined with `--exclude`); manually
-  verified against a real `node_modules`/vendored tree that excluded
-  duplicates disappear from `gaz dup`'s results.
-- **Limits model: only --max-seconds on by default, --max-entries opt-in,
-  --max-rows still on but escapable.** All three budgets used to apply
-  simultaneously (stop on whichever was hit first), so a scan on fast
-  local storage could stop early on entry count alone even with plenty of
-  time left. Now `--max-entries` defaults to `0` (unlimited) and is
-  purely opt-in; `--max-seconds` stays on by default (default `30`);
-  `--max-rows` stays on by default (default `50`, protecting the
-  terminal/context window regardless of walk speed) but now honors `0`
-  meaning "every row." `0` is the unlimited sentinel for all three.
-  `walk.py` gained `time_exceeded()`/`entries_exceeded()` helper closures
-  so the four inline budget checks read the same way; `report.status_line`
-  now computes mutually-exclusive `is_entries_stop`/`is_time_stop` flags
-  (avoiding a substring collision — `"entries limit"` contains `"s
-  limit"`) and only suggests raising a budget the caller actually had
-  active, never a nonsensical "--max-entries 0" or "--max-seconds 0."
-  `report.limit_rows()` centralizes the `0`-means-unlimited row
-  truncation used by all six commands. Tested in `tests/test_walk.py`,
-  `tests/test_report.py`, and `tests/test_cli_edge_cases.py` (default
-  behavior, explicit opt-in, and both `0`-means-unlimited cases); manually
-  verified against a real tree that a default run no longer stops on
-  entry count and `--max-rows 0` prints every row.
-- **Re-run suggestion named the wrong flag.** `report.status_line` now
-  reads `result.stop_reason` and suggests `--max-entries` when that was
-  the actual limit hit, `--max-seconds` otherwise, instead of always
-  suggesting a bigger time budget. Tested in `tests/test_report.py`
-  (both the entries-limit and time-limit cases) and manually verified
-  against a real truncated run.
-- **`gaz empty` could false-positive unvisited directories as empty.**
-  The walker now tracks which directories were actually fully scanned
-  (`WalkResult.scanned_dirs`) rather than merely discovered as an entry
-  of a scanned parent. `gaz empty` uses this to distinguish three cases:
-  confirmed empty (scanned, and its whole subtree is known and
-  file-free), unvisited due to the walk stopping early (reported
-  separately, not counted as empty), and out of scope due to
-  `--max-depth` (also not counted as empty, but not described as a
-  truncation either, since `--max-depth` is a deliberate scoping choice
-  that can still leave `result.complete == True`). Covers both the
-  simple case (an unscanned root) and the subtler one (a directory that
-  was itself fully scanned but has an unscanned child that could be
-  hiding a file). Tested in `tests/test_walk.py` (the new `scanned_dirs`
-  field directly) and `tests/test_cli_empty.py` (all three cases above,
-  plus that a genuinely complete walk shows no caveat at all).
+- Closed **dry-run/preview-before-acting for `gaz dup`** as out of
+  scope — see the read-only note above; `--json` is the integration
+  point for external deletion tools, not a feature gaz builds itself.
+- **Bounded `--json` output** on all six commands: one shared envelope
+  (`report.json_output` — `rows`, `complete`, `stop_reason`, counts,
+  `total`), still respects `--max-rows`. Schema in DESIGN.md.
+- **`gaz tree --recursive`**: rolls up each row's totals to its full
+  subtree (like `du -d1`) instead of direct children only.
+- Added **`skills/gaz-usage/SKILL.md`** covering non-obvious usage
+  (default budgets, `--exclude`, sampling, reading the status line).
+- **`gaz stale`** flags timestamps within a week of the Unix epoch with
+  `(?)` instead of reporting them indistinguishably from real old files.
+- **`gaz find --pattern`** now errors with a pointer to the correct
+  positional form instead of a generic "no such option."
+- **`--exclude PATTERN`** (all six commands) prunes directories before
+  descent, so excluding noise also frees up `--max-entries` budget;
+  `gaz dup --skip-vendored` builds a curated exclude list on top.
+- **Limits model rework**: only `--max-seconds` is on by default now;
+  `--max-entries` is opt-in (was a silent 1,000,000 ceiling);
+  `--max-rows` stays on but `0` means every row. `0` is the unlimited
+  sentinel across all three.
+- **Status line re-run suggestions** now name whichever budget actually
+  stopped the walk, instead of always suggesting `--max-seconds`.
+- **`gaz empty`** no longer false-positives unvisited directories
+  (walk stopped early, or out of `--max-depth` scope) as empty.
