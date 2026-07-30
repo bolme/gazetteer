@@ -72,6 +72,18 @@ item below should preserve both.
   for even a bounded walk to usefully cover. Different guarantee than
   everything else gaz does (an estimate with error bars, not an observed
   lower bound) — needs its own honest-presentation design before code.
+  **Spike done, superseded for the CLI surface by `gaz sample`** (see
+  "Recently resolved" below): `src/gazetteer/estimate.py` implements and
+  `tests/test_estimate.py` validates a weighted-random-descent estimator
+  (Knuth's tree-size algorithm generalized to sum bytes) against
+  synthetic trees in `tests/mocktree.py` — confirmed unbiased, confirmed
+  95% CI coverage is honest, and found that probe cost is driven far more
+  by tree *shape* (depth, branching-factor variance across siblings) than
+  by tree size. See `docs/sample-estimation.md` for the comparison.
+  `gaz sample` ships a different algorithm instead (`frontier.py`'s
+  frontier-based sampler). `estimate.py`/`mocktree.py` remain unwired to
+  any command, as a validated alternative — see that document's "known
+  gaps" section for a proposed hybrid of the two that hasn't been built.
 - **[Feature, L] LLM-based captioning for images/visual formats.**
   Configure a multimodal LLM to caption images, convert PDF/PPTX pages
   to images first. Pulls in a network dependency and API-key config
@@ -92,6 +104,52 @@ item below should preserve both.
   mirror a settled CLI surface instead of being designed twice.
 
 ## Recently resolved
+
+- **`gaz sample`**: estimates each immediate subdirectory of PATH via a
+  frontier-based adaptive sampler (`src/gazetteer/frontier.py`) that
+  scans each directory at most once, for subtrees too large for `gaz
+  list` to fully walk. Every row reports three tiers rather than one
+  number — `exact` when a subdirectory's frontier fully drains in time,
+  else a true `lower_bound` (sum of everything actually counted, never
+  inflated) alongside a completeness-weighted `estimate` that is clearly
+  marked as possibly biased. See `docs/sample-estimation.md` for the
+  algorithm, the bias finding that motivates the three-tier reporting,
+  and a real identity-vs-equality bug found and fixed during development.
+  `--max-seconds` is a total budget shared across every subdirectory
+  (33% divided equally up front so small ones reliably finish, the rest
+  round-robined across whatever's incomplete), not a per-subdirectory
+  one — this keeps total runtime predictable regardless of how many
+  subdirectories PATH has. Also reports `dirs` (same lower-bound/
+  estimate split), an `activity` column (age of the most recently
+  modified file), `ext types` (count of distinct extensions), and `ext`
+  (as many "ext(NN%)" entries as fit in 30 chars, ranked biggest-first —
+  no "+N other" filler) — an opt-in `--fields owners` shows a single top
+  file owner the same way. `--rank-by size|count` (default `size`)
+  controls whether `ext`/`owners` rank by bytes or file count. The
+  extension/activity/owner data are always an exact tally of scanned
+  files only, never extrapolated, since guessing at an unscanned
+  directory's likely extension mix, recency, or ownership is a much
+  shakier claim than guessing at its total size.
+  `--sort name|size|files|dirs|activity` (default `name`, `--reverse`
+  flips it) ranks by the estimate rather than the lower bound, so a huge
+  but barely-scanned subdirectory still sorts as huge. A `denied` column
+  (count of directories that hit `PermissionError`, recursing through
+  ancestors the same way `dirs` does) appears only when at least one
+  subdirectory has a nonzero count — invisible on a tree gaz can fully
+  read; a row with any denials gets a leading `-` marker, which takes
+  priority over the incomplete-scan `*` marker even on a row that's
+  both. Plain files directly inside PATH are listed alongside
+  subdirectories (like `gaz list`), always exact since a file's own stat
+  is already the complete answer — the "N of M subdirectories" status
+  line and JSON's `subdirs`/`exact_subdirs` count only directory rows,
+  so files don't inflate either side of that ratio. Also fixed a real
+  bug found by inspection: the completeness-weighted estimate could come
+  out below its own lower bound when a low-completeness child's diluted
+  mean undercut its own already-counted total; now clamped at every
+  level of the recursion, not just the root. Ends with a two-line
+  summary: total directories/files visited and wall-clock time, then a
+  grand total across every row (a single number if every subdirectory
+  finished exactly, or a confirmed/estimated split if any didn't).
 
 - **Consistent paths**: relative (`./sub/f.txt`) in text everywhere,
   shared `-P` for absolute, `--json` always absolute. Every command now

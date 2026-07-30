@@ -1,6 +1,30 @@
 # Changelog
 
-## 0.1.3 (unreleased)
+## 0.1.4 (unreleased)
+
+### Added
+
+- **`gaz sample [PATH]`** — estimates each immediate subdirectory of PATH
+  (and lists any loose files directly inside it) for trees too large for
+  `gaz list` to finish walking. Uses a frontier-based adaptive sampler
+  (`src/gazetteer/frontier.py`) that scans each directory at most once
+  under one shared `--max-seconds` budget across every subdirectory (33%
+  divided equally up front so small subtrees reliably finish, the rest
+  round-robined across whatever's incomplete) rather than a fixed
+  per-subdirectory budget, so total runtime stays predictable regardless
+  of subdirectory count. Every directory row reports either an exact
+  total or a true lower bound alongside a completeness-weighted estimate
+  (never a bare number, since the estimate can be biased at partial
+  coverage — see `docs/sample-estimation.md`), plus `dirs`
+  (same lower-bound/estimate split), `activity` (age of the most
+  recently modified file), `ext types` and `ext` (extension variety and
+  a packed top-extensions list), and a `denied` column that appears only
+  when a permission error was hit anywhere in the tree. `--sort`,
+  `--rank-by size|count`, and `--fields owners` round out the display;
+  a summary line after the table reports total directories/files visited,
+  elapsed time, and a grand total across every row.
+
+## 0.1.3
 
 ### Fixed
 

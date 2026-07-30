@@ -52,7 +52,7 @@ class WalkEntry:
     # Bytes actually allocated on disk (st_blocks * 512), which is what
     # `du` reports and what "where did my space go" means. For a sparse
     # file or a cloud placeholder this is far below `apparent_size`; see
-    # _entry_size for why that's the default rather than st_size.
+    # entry_size for why that's the default rather than st_size.
     size: int
     mtime: float
     # st_size: the length a program reading the file sees. Equal to `size`
@@ -75,7 +75,7 @@ def entry_ctime(stat_result: os.stat_result) -> float:
     return getattr(stat_result, "st_birthtime", stat_result.st_ctime)
 
 
-def _entry_size(stat_result: os.stat_result) -> int:
+def entry_size(stat_result: os.stat_result) -> int:
     """Bytes this file actually occupies on disk.
 
     st_size is the file's *apparent* length, which for a sparse file (VM
@@ -240,7 +240,7 @@ def walk(
                         parent=dir_path,
                         name=entry.name,
                         is_dir=False,
-                        size=_entry_size(stat_result),
+                        size=entry_size(stat_result),
                         apparent_size=stat_result.st_size,
                         mtime=stat_result.st_mtime,
                         ctime=entry_ctime(stat_result),
@@ -274,14 +274,14 @@ def walk(
                         parent=dir_path,
                         name=entry.name,
                         is_dir=False,
-                        size=_entry_size(stat_result),
+                        size=entry_size(stat_result),
                         apparent_size=stat_result.st_size,
                         mtime=stat_result.st_mtime,
                         ctime=entry_ctime(stat_result),
                     )
                 )
                 result.n_files += 1
-                result.n_bytes += _entry_size(stat_result)
+                result.n_bytes += entry_size(stat_result)
         else:
             # Only reached if the for-loop above ran to completion without
             # `break`ing on a budget check — i.e. every entry in this

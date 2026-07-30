@@ -436,24 +436,35 @@ which is a real failure, not a truncation.
 gazetteer/
 ├── pyproject.toml          # [project.scripts] gaz = "gazetteer.cli:main"
 ├── src/gazetteer/
-│   ├── cli.py              # click group + the seven tree-walking commands
+│   ├── cli.py              # click group + the eight tree-walking commands
 │   ├── preview_cli.py      # the preview/convert commands (single-file, no walker)
 │   ├── walk.py             # bounded walker — the one core primitive
 │   ├── filters.py          # shared --max-*/--ext/--pattern/--size options
 │   ├── cache.py            # SQLite store + cache resolution (phase 2)
 │   ├── report.py           # table + status-line rendering
-│   └── convert.py          # format detection + single-file conversion (used by preview_cli.py)
+│   ├── convert.py          # format detection + single-file conversion (used by preview_cli.py)
+│   ├── frontier.py         # gaz sample's frontier-based adaptive sampler (see below)
+│   ├── estimate.py         # unshipped random-descent sampling estimator (research spike)
+│   └── mocktree.py         # (in tests/) synthetic trees used by estimate.py's test suite
 └── tests/
 ```
 
-Seven modules. Resist splitting further until one exceeds ~300 lines —
-`cli.py` has already blown past this (~1,100 lines as of 0.1.3, seven
-commands each repeating the same walk/filter/render-or-json shape); see
-TODO.md's item on splitting it before adding another cross-cutting flag.
+Resist splitting further until a module exceeds ~300 lines — `cli.py`
+has already blown past this (~1,650 lines as of 0.1.3+: seven commands
+each repeating the same walk/filter/render-or-json shape, plus `gaz
+sample`, which doesn't share that shape and accounts for a large chunk
+of the growth on its own); see TODO.md's item on splitting it before
+adding another cross-cutting flag.
 
-Commands never touch SQL or `os.scandir` directly. They ask `cache.py` for a result
+Commands never touch SQL directly. They ask `cache.py` for a result
 set; it either answers from the DB or delegates to `walk.py`. That single seam is what
-keeps the cached and uncached paths from drifting apart.
+keeps the cached and uncached paths from drifting apart. **One deliberate
+exception**: `gaz sample`'s `frontier.py` calls `os.scandir` directly
+rather than going through `walk.py`, because its entire premise is
+scanning each directory at most once under a per-subdirectory time
+budget instead of a single bounded walk over the whole tree — see
+`docs/sample-estimation.md` for why this needed its own traversal logic
+rather than reusing `walk.walk()`.
 
 ## v0 scope
 

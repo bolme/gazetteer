@@ -1,4 +1,6 @@
-"""Table and status-line rendering.
+"""Table and status-line rendering, plus shared parsing/formatting/
+normalization helpers (sizes, durations, dates, paths, extensions) used
+across commands so each one doesn't reimplement its own.
 
 Plain aligned text by default; every command's output ends with a one-line
 natural-language status describing whether the result is complete.
@@ -33,6 +35,16 @@ _DURATION_UNITS = {
     "w": 7 * 86400,
     "y": 365 * 86400,
 }
+
+
+def extension_of(name: str) -> str:
+    """Normalized extension key shared by every command that groups files
+    by extension (gaz ext, gaz sample): lowercased, dot included,
+    "(none)" for a file with no extension. One definition here rather
+    than each command normalizing its own way and silently drifting
+    apart on an edge case (e.g. a file named "README" vs. "archive.tar.gz")."""
+    _, dot_ext = os.path.splitext(name)
+    return dot_ext.lower() or "(none)"
 
 
 def human_size(n_bytes: int) -> str:

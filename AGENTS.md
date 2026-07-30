@@ -49,28 +49,37 @@ DESIGN.md's "Traversal order" section.
 
 ```
 src/gazetteer/
-├── cli.py          # click group + the seven tree-walking commands
+├── cli.py          # click group + the eight tree-walking commands (incl. sample)
 ├── preview_cli.py  # the preview/convert commands (single-file, no walker)
 ├── walk.py         # the one bounded walker — every tree command routes through this
+├── frontier.py     # gaz sample's frontier-based adaptive sampler (its own os.scandir; see below)
+├── estimate.py     # unshipped random-descent sampling estimator (research spike, not wired to any command)
 ├── filters.py      # shared --max-*/--ext/--pattern/--size options + matches_filters
-├── report.py       # human_size/human_duration, parsing, table + status-line rendering
+├── report.py       # human_size/human_duration/extension_of, parsing, table + status-line rendering
 ├── convert.py      # format detection + single-file conversion, used by preview_cli.py
 └── cache.py        # SQLite store + resolution ladder (phase 2, not yet built)
-tests/              # one test file per source module, plus CLI-level test files
+tests/              # one test file per source module, plus CLI-level test files, plus mocktree.py (estimate.py's synthetic-tree generator)
 ```
 
 - Commands never call `os.scandir` or hash files directly outside of
-  `walk.py`'s traversal — if a command needs its own filesystem walk, that's
-  a signal `walk.py`'s interface is wrong. Fix the walker, don't route
-  around it.
+  `walk.py`'s traversal, with one deliberate exception: `frontier.py`
+  (`gaz sample`) calls `os.scandir` itself, because its whole premise is
+  scanning each directory at most once under a resumable, per-
+  subdirectory budget rather than one bounded walk over the whole tree —
+  see DESIGN.md's Layout section. Everywhere else, a command needing its
+  own filesystem walk is a signal `walk.py`'s interface is wrong; fix the
+  walker, don't route around it.
 - Shared CLI option definitions (`--max-seconds`, `--exclude`, `--json`,
   `--ext`, `--size`, ...) live in `filters.py`, not copy-pasted into each
   command in `cli.py`.
-- Size/duration parsing and formatting (`parse_size`, `parse_duration`,
-  `human_size`, `human_duration`) live in `report.py`, not scattered inline.
+- Size/duration/extension parsing and formatting (`parse_size`,
+  `parse_duration`, `human_size`, `human_duration`, `extension_of`) live
+  in `report.py`, not scattered inline or duplicated per-module.
 - Resist splitting a module further until it exceeds ~300 lines. `cli.py`
-  is already an exception (~1,100 lines) — see TODO.md before adding another
-  cross-cutting flag to all seven commands without addressing it.
+  is already an exception (~1,650 lines) — see TODO.md before adding
+  another cross-cutting flag to the seven `filters.py`-based commands
+  without addressing it (`gaz sample` doesn't use `filters.py` — it has
+  its own budget/option model — so it's outside that count).
 
 ## Conventions
 

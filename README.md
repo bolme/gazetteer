@@ -168,6 +168,131 @@ actually reclaim. `--apparent` ranks by file length instead, which is what
 surfaces sparse files and cloud placeholders — a VM disk image can be #1
 by apparent size and unremarkable by allocated blocks.
 
+### `gaz sample` — estimate huge subdirectories `gaz list` can't finish walking
+
+For a tree so large that even `gaz list` can't fully walk one of its
+subdirectories in a reasonable time. Scans each immediate subdirectory of
+PATH with a frontier-based adaptive sampler that reads each directory at
+most once — the whole point is to make real progress on trees a bounded
+walk can't cover. Plain files directly inside PATH are listed too (like
+`gaz list`), with no scanning needed since a file's own size/owner/mtime
+is already the complete answer — those rows are always exact and never
+carry a `*` or `-` marker. `--max-seconds` is a **total** budget for the
+whole command, split in two passes so runtime stays predictable
+regardless of how many subdirectories PATH has: 33% divided equally
+across every subdirectory first (so small ones reliably finish), then
+the rest round-robined in small slices across whatever's still
+incomplete until the clock runs out. Every row is one of two kinds:
+
+```
+$ gaz sample /data/dataset --max-seconds 15
+name       files                dirs             size                activity  ext types  ext
+---------  -------------------  ---------------  ------------------  --------  ---------  ------------------------------
+  val/     102,340              1,204            14.2 GB              2d ago    2          .jpg(96%) .xml(4%)
+  test/    60,221               712              6.1 GB               5d ago    2          .jpg(97%) .xml(3%)
+* train/   119,697+ (~501,819)  1,822+ (~7,603)  1.5 GB+ (~2.5 GB)   3h ago    5          .jpg(98%) .png(1%) .xml(1%)
+
+2 of 3 subdirectories fully scanned (exact).
+* marks a subdirectory that wasn't fully scanned within the 15s total
+--max-seconds budget: "N+ (~M)" means N is a true lower bound and M is a
+rough, possibly-biased estimate of the real total — see
+docs/sample-estimation.md. Re-run with a larger --max-seconds
+for a tighter lower bound.
+Scanned 3,738 dirs / 182,258 files in 15.0s.
+Total: 182,258 files, 21.8 GB confirmed (~1,001,922 files, ~30.4 GB estimated).
+```
+
+The last two lines summarize the whole run: how much work `--max-seconds`
+actually bought (directories and files visited, wall-clock time), then a
+grand total across every row. `Total` follows the same confirmed/
+estimated split as any individual row — a plain number when every
+subdirectory finished exactly, or `confirmed (~estimated)` when at least
+one didn't, summing each row's lower bound and estimate respectively.
+
+`val/` and `test/` finished within budget, so their numbers are exact
+totals, identical to what `gaz list` would eventually report. `train/`
+didn't — `119,697+` is a true floor (every file actually counted so far,
+never inflated), and `(~501,819)` is a statistical estimate of the rest,
+which **can be meaningfully wrong**, sometimes by a large margin, at
+partial coverage — see docs/sample-estimation.md for why. Treat the
+estimate as a rough size-of-the-problem signal and the lower bound as
+the only number that's actually guaranteed true; re-running with a
+larger `--max-seconds` tightens the lower bound and, given enough time,
+converges to exact.
+The `dirs` column follows the same lower-bound/estimate split. Sort with
+`--sort name|size|files|dirs|activity` (default `name`, `--reverse`
+flips it) — ranking uses the estimate, not the lower bound, so a huge
+but barely-scanned subdirectory still sorts as huge instead of as
+whatever sliver of it happened to get counted.
+
+The `activity`, `ext types`, and `ext` columns are always an **exact
+observation/tally of files actually scanned so far**, never extrapolated
+the way size/files/dirs are — even on `train/`'s partial row, they
+describe only the 119,697 files actually counted, not a guess about the
+whole subtree. `activity` shows how long ago the most recently modified
+file anywhere in the subtree was touched — the simplest useful "is this
+still being used" signal, since guessing at an unscanned directory's
+likely recency (or extension mix, or file ownership) would be a much
+shakier statistical claim than guessing at its total size, so this
+module doesn't attempt any of them (see
+docs/sample-estimation.md). `ext types` is how many distinct
+extensions exist — a variety signal `ext` alone doesn't give — and `ext`
+packs in as many `ext(NN%)` entries as fit in 30 characters (ranked
+biggest-first, no `+N other` filler), so a directory with only a couple
+of extensions shows all of them while one with many shows however many
+actually fit.
+
+By default, `ext` (and `--fields owners`, below) rank by **total bytes**,
+since "what's using the space" is usually the more useful question —
+`--rank-by count` switches both to file counts instead:
+
+```
+$ gaz sample /data/dataset --rank-by count
+name    files    ...  ext types  ext
+------  -------  ...  ---------  ------------------
+val/    102,340  ...  2          .xml(50%) .jpg(50%)
+```
+
+`--fields owners` adds one more column in the same spirit — the single
+top file owner, ranked the same way as `ext`, with a percentage only
+shown when they don't own everything (e.g. `alice(80%)`, or bare `alice`
+at 100%) — off by default since it's extra width most runs don't need:
+
+```
+$ gaz sample /data/dataset --fields owners
+name    files    ...  ext                  owner
+------  -------  ...  -------------------  ----------
+val/    102,340  ...  .jpg(96%) .xml(4%)   alice(92%)
+```
+
+A `denied` column appears automatically, only when at least one
+subdirectory hit a permission error — a tree gaz can read all of never
+shows it. It counts directories anywhere in that row's subtree that
+couldn't be opened (blank rather than `0` for a row with nothing denied,
+so the handful of rows that hit a real problem stand out), and a row
+with any denials gets a leading `-` instead of `*`/blank — `-` takes
+priority over `*` even on a row that's also incomplete, since "gaz
+couldn't read part of this" is a more specific, more actionable fact
+than "the scan ran out of time":
+
+```
+$ gaz sample /home/shared
+name         files    dirs    denied  size    ...
+-----------  -------  ------  ------  ------  ...
+  alice/     102,340  1,204           14.2 GB ...
+- bob/       8,204    340     3       1.1 GB  ...
+```
+
+`bob/`'s 3 denied directories don't stop the row from being `exact` —
+every directory gaz *could* open was fully scanned; it's an honest count
+of what was inaccessible, not a sign the scan itself was incomplete.
+
+Total wall-clock time is bounded by `--max-seconds` (default 30)
+regardless of subdirectory count — a directory with 2 subdirectories and
+one with 200 both finish in roughly the same time, unlike a fixed
+per-subdirectory budget, which would make total runtime scale with how
+many subdirectories PATH happens to have.
+
 ### `gaz dup` — duplicate files by content hash
 
 Groups candidates by size first (cheap), then hashes only same-size groups
